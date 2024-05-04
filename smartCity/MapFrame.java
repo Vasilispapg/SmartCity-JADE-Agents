@@ -9,7 +9,8 @@ public class MapFrame extends JFrame {
 
   private CityMap cityMap;
   private int tileSize = 30; // Size of each tile in pixels
-  private Map<String, Point> agentPositions; // Tracks the position of each agent
+  private Map<String, Point> agentPositions; // Tracks the position and color of each agent
+  private Map<String, Color> agentColors = new HashMap<>();
 
   public MapFrame(CityMap cityMap) {
     this.cityMap = cityMap;
@@ -25,9 +26,14 @@ public class MapFrame extends JFrame {
     setVisible(true);
   }
 
-  public void updatePosition(String agentName, Point position) {
-    agentPositions.put(agentName, new Point(position));
-    SwingUtilities.invokeLater(this::repaint); // Ensure GUI updates happen on the EDT
+  public void updatePosition(String agentName, Point position, Color color) {
+    if (agentPositions != null && color != null) {
+      agentPositions.put(agentName, position);
+      agentColors.put(agentName, color);
+      SwingUtilities.invokeLater(this::repaint);
+    } else {
+      System.err.println("Agent positions or colors map is not initialized.");
+    }
   }
 
   @Override
@@ -40,7 +46,7 @@ public class MapFrame extends JFrame {
     }
     for (Map.Entry<String, Point> entry : agentPositions.entrySet()) {
       Point p = entry.getValue();
-      // Adjust the drawing position based on tileSize
+      g.setColor(agentColors.get(entry.getKey()));
       g.fillOval(
         p.x * tileSize + tileSize / 4,
         p.y * tileSize + tileSize / 4,
@@ -51,27 +57,29 @@ public class MapFrame extends JFrame {
   }
 
   private void drawTile(Graphics g, int i, int j) {
+    StaticColors colors = new StaticColors();
+
     switch (cityMap.getCell(i, j)) {
       case "Road":
-        g.setColor(Color.DARK_GRAY);
+        g.setColor(colors.getColor("Road"));
         break;
       case "Sidewalk":
-        g.setColor(Color.LIGHT_GRAY);
+        g.setColor(colors.getColor("Sidewalk"));
         break;
       case "House":
-        g.setColor(Color.decode("#793690"));
+        g.setColor(colors.getColor("House"));
         break;
       case "Hospital":
-        g.setColor(Color.WHITE);
+        g.setColor(colors.getColor("Hospital"));
         break;
       case "Police Station":
-        g.setColor(Color.BLUE);
+        g.setColor(colors.getColor("Police Station"));
         break;
       case "Fire Station":
-        g.setColor(Color.ORANGE);
+        g.setColor(colors.getColor("Fire Station"));
         break;
       default:
-        g.setColor(Color.BLACK);
+        g.setColor(colors.getColor("default"));
         break;
     }
     g.fillRect(j * tileSize, i * tileSize, tileSize, tileSize);

@@ -9,6 +9,4 @@ README
 MTPs-Main-Container.txt
 build.properties
 APDescription.txt
-src/jade-main.html
-src/fipa.idl
 *.class

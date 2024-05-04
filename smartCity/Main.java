@@ -6,7 +6,6 @@ import jade.core.Runtime;
 import jade.wrapper.AgentContainer;
 import jade.wrapper.AgentController;
 import java.awt.Point;
-import java.util.Random;
 import javax.swing.SwingUtilities;
 
 public class Main {
@@ -19,6 +18,7 @@ public class Main {
     SwingUtilities.invokeLater(() -> {
       mapFrame.setVisible(true); // Ensure the map window is visible
     });
+    StaticColors colorHandler = new StaticColors();
 
     // Start JADE runtime and setup agents
     Runtime rt = Runtime.instance();
@@ -28,54 +28,35 @@ public class Main {
     AgentContainer container = rt.createMainContainer(profile); // Main JADE container
 
     try {
-      // Initialize agents
-      // createRandomAgents(container, "PoliceAgent", 1, 1);
-      // createRandomAgents(container, "NurseAgent", 1, 1);
-      // createRandomAgents(container, "FireFighterAgent", 1, 1);
-      // createRandomAgents(container, "ThiefAgent", 1, 1);
       int identifier = 0;
       for (int i = 0; i < cityMap.size; i++) {
         for (int j = 0; j < cityMap.size; j++) {
-          if (cityMap.getCell(i, j).equals("House")) {
+          if (cityMap.getCell(i, j).equals("House") && identifier < 1) {
             generateAgents(
               container,
-              "CitizenAgent",
+              "Citizen",
               identifier++,
               cityMap,
               mapFrame,
-              new Point(i, j)
+              new Point(i, j),
+              colorHandler
             ); // Assuming each cell directly maps to a visual position
+          }
+          if (identifier == 1 && cityMap.getCell(i, j).equals("Hospital")) {
+            generateAgents(
+              container,
+              "NurseAgent",
+              identifier++,
+              cityMap,
+              mapFrame,
+              new Point(i, j),
+              colorHandler
+            );
           }
         }
       }
     } catch (Exception e) {
       e.printStackTrace();
-    }
-  }
-
-  private static void createRandomAgents(
-    AgentContainer container,
-    String agentType,
-    int min,
-    int max,
-    CityMap cityMap,
-    Point position,
-    MapFrame mapFrame
-  ) {
-    Random rand = new Random();
-    int count = rand.nextInt(max - min + 1) + min;
-    for (int i = 0; i < count; i++) {
-      try {
-        Object[] args = new Object[] { cityMap, mapFrame, position };
-        AgentController ac = container.createNewAgent(
-          agentType + i,
-          "examples.smartCity." + agentType,
-          args
-        );
-        ac.start();
-      } catch (Exception e) {
-        System.err.println("Exception starting agent: " + e.toString());
-      }
     }
   }
 
@@ -85,10 +66,16 @@ public class Main {
     int identifier,
     CityMap cityMap,
     MapFrame mapFrame,
-    Point position
+    Point position,
+    StaticColors colorHandler
   ) {
     try {
-      Object[] args = new Object[] { cityMap, mapFrame, position };
+      Object[] args = new Object[] {
+        cityMap,
+        mapFrame,
+        position,
+        colorHandler.getColor(agentType), // Use the color for the House type
+      };
       AgentController ac = container.createNewAgent(
         agentType + identifier,
         "examples.smartCity." + agentType,
