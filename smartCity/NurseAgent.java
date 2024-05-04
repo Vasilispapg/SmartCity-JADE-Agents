@@ -14,14 +14,16 @@ import java.awt.Point;
 
 public class NurseAgent extends CitizenAgent {
 
-  private boolean isAvailable = true;
+  private DFAgentDescription dfd = new DFAgentDescription();
+  private ServiceDescription sd = new ServiceDescription();
+  private boolean isBusy = false;
 
   protected void setup() {
     super.setup();
     System.out.println(getLocalName() + " started as a Nurse Agent.");
     vehicle = new Vehicle("Ambulance");
     System.out.println(
-      "Nurse agent ready, driving an " +
+      "Nurse is driving an " +
       vehicle.getType() +
       " with speed " +
       vehicle.getSpeed() +
@@ -32,20 +34,6 @@ public class NurseAgent extends CitizenAgent {
     addBehaviour(new HandleRequests());
   }
 
-  private void registerService() {
-    DFAgentDescription dfd = new DFAgentDescription();
-    dfd.setName(getAID());
-    ServiceDescription sd = new ServiceDescription();
-    sd.setType("nurse");
-    sd.setName("healthcare");
-    dfd.addServices(sd);
-    try {
-      DFService.register(this, dfd);
-    } catch (FIPAException fe) {
-      fe.printStackTrace();
-    }
-  }
-
   private class HandleRequests extends CyclicBehaviour {
 
     public void action() {
@@ -53,15 +41,31 @@ public class NurseAgent extends CitizenAgent {
         MessageTemplate.MatchPerformative(ACLMessage.REQUEST)
       );
       if (msg != null) {
-        System.out.println(
-          "Received help request from " + msg.getSender().getLocalName()
-        );
-        String content = msg.getContent();
-        Point targetPosition = parsePosition(content);
-        addBehaviour(
-          new MoveToInjuredBehaviour(myAgent, targetPosition, msg.getSender())
-        );
-        isAvailable = false; // Nurse is now busy
+        if (!isBusy) {
+          isBusy = true;
+          agentSays(
+            "received a message from " + msg.getSender().getLocalName()
+          );
+
+          String content = msg.getContent();
+          Point targetPosition = parsePosition(content);
+          try {
+            if (DFService.search(myAgent, dfd) != null) DFService.deregister(
+              myAgent
+            ); // Nurse is busy
+          } catch (FIPAException e) {
+            e.printStackTrace();
+          }
+          addBehaviour(
+            new MoveToInjuredBehaviour(myAgent, targetPosition, msg.getSender())
+          );
+        } else {
+          ACLMessage reply = msg.createReply();
+          reply.setPerformative(ACLMessage.REFUSE);
+          reply.setContent("I'm busy right now");
+          send(reply);
+          agentSays("I'm busy right now dear" + msg.getSender().getLocalName());
+        }
       } else {
         block();
       }
@@ -91,39 +95,42 @@ public class NurseAgent extends CitizenAgent {
     }
 
     protected void onTick() {
-      if (!position.equals(targetPosition)) {
-        // Simple movement logic: move one step towards the target
-        if (position.x < targetPosition.x) position.x++; else if (
-          position.x > targetPosition.x
-        ) position.x--;
+      // Horizontal movement
+      if (position.x < targetPosition.x) {
+        position.x++;
+      } else if (position.x > targetPosition.x) {
+        position.x--;
+      }
 
-        if (position.y < targetPosition.y) position.y++; else if (
-          position.y > targetPosition.y
-        ) position.y--;
+      // Vertical movement
+      if (position.y < targetPosition.y) {
+        position.y++;
+      } else if (position.y > targetPosition.y) {
+        position.y--;
+      }
 
-        // Update position on the map
-        mapFrame.updatePosition(getAID().getLocalName(), position, color);
-        System.out.println(getAID().getLocalName() + " moving to " + position);
-      } else {
-        // Once at the location, perform healing
+      //   agentSays(
+      //     "position: " + position + ", target position: " + targetPosition
+      //   );
+
+      // Update the position on the map after moving
+      mapFrame.updatePosition(getAID().getLocalName(), position, color);
+      //   agentSays("moved to " + position.x + "," + position.y);
+
+      // Check if reached the target position
+      if (targetPosition.equals(position)) { // If no move was made, we're at the target position
         performHealing();
+        registerService(); // Nurse is available again
         stop();
       }
     }
 
     private void performHealing() {
-      System.out.println(
-        getAID().getLocalName() +
-        " has healed " +
-        targetAgent.getLocalName() +
-        " at " +
-        position
-      );
+      agentSays("healing " + targetAgent.getLocalName());
       ACLMessage healConfirm = new ACLMessage(ACLMessage.INFORM);
       healConfirm.addReceiver(targetAgent);
       healConfirm.setContent("Healed at " + position);
       send(healConfirm);
-      isAvailable = true; // Nurse becomes available again
     }
   }
 
@@ -131,10 +138,23 @@ public class NurseAgent extends CitizenAgent {
   protected void takeDown() {
     // Deregister from the yellow pages
     try {
-      DFService.deregister(this);
+      if (DFService.search(this, dfd) != null) DFService.deregister(this);
     } catch (FIPAException fe) {
       fe.printStackTrace();
     }
-    System.out.println(getAID().getName() + " terminating.");
+    agentSays("terminating.");
+  }
+
+  private void registerService() {
+    dfd.setName(getAID());
+    sd.setType("nurse");
+    sd.setName("healthcare");
+    dfd.addServices(sd);
+    try {
+      DFService.register(this, dfd);
+    } catch (FIPAException fe) {
+      fe.printStackTrace();
+    }
+    isBusy = false;
   }
 }

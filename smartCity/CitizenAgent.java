@@ -4,6 +4,7 @@ import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.core.behaviours.TickerBehaviour;
+import jade.core.behaviours.WakerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.SearchConstraints;
@@ -16,6 +17,7 @@ import java.awt.Point;
 
 public class CitizenAgent extends Agent {
 
+  // Variables for the citizen
   protected boolean isInjured = false;
   protected boolean ownsCar;
   protected Vehicle vehicle; // Vehicle associated with the citizen
@@ -23,7 +25,15 @@ public class CitizenAgent extends Agent {
   MapFrame mapFrame;
   private CityMap cityMap;
   Color color;
+
+  // Variables for finding nurses
   private AID nurseNearby;
+  private boolean helpRequested = false; // Flag to check if help has been requested
+
+  // Retry parameters
+  private int retryCounter = 0;
+  private final int maxRetries = 5;
+  private final long initialDelay = 5000; // milliseconds
 
   public CitizenAgent() {
     ownsCar = Math.random() < 0.7; // 70% chance the citizen owns a car
@@ -60,7 +70,6 @@ public class CitizenAgent extends Agent {
       this.color = (Color) args[3];
     }
 
-    System.out.println(position + " color: " + color);
     if (
       this.mapFrame == null ||
       this.cityMap == null ||
@@ -95,9 +104,9 @@ public class CitizenAgent extends Agent {
 
     public void onTick() {
       double chance = Math.random();
-      if (chance < 0.2 && vehicle.getType() != "Ambulance") {
+      if (chance < 0.2 && vehicle.getType() != "Ambulance" && !isInjured) {
         isInjured = true;
-        System.out.println(getAID().getLocalName() + " got injured.");
+        agentSays("I am injured");
       }
     }
   }
@@ -105,31 +114,51 @@ public class CitizenAgent extends Agent {
   private class RequestHelp extends CyclicBehaviour {
 
     public void action() {
-      if (isInjured) {
-        if (nurseNearby == null) findNurses(); // This might need to be called less frequently
-        if (nurseNearby != null) {
-          System.out.println(getAID().getLocalName() + " is injured.");
-          System.out.println("Requesting medical assistance at " + position);
-          ACLMessage helpRequest = new ACLMessage(ACLMessage.REQUEST);
-          helpRequest.addReceiver(nurseNearby);
-          helpRequest.setContent(
-            "Need medical assistance at position: " +
-            position.x +
-            "," +
-            position.y
-          );
-          myAgent.send(helpRequest);
-          System.out.println(
-            "Sent help request to " + nurseNearby.getLocalName()
-          );
+      if (isInjured && !helpRequested) {
+        if (nurseNearby == null && retryCounter < maxRetries) {
+          findNurses();
+          retryCounter++;
         }
-        block(5000); // Don't spam the network, retry after some time if needed
+        if (nurseNearby != null) {
+          sendHelpRequest();
+          helpRequested = true; // Mark that help request is sent
+        } else if (retryCounter >= maxRetries) {
+          agentSays("No nurse found after maximum retries.");
+          block(); // Stop retrying and wait for other events
+          takeDown(); // Terminate the agent
+        }
       }
     }
   }
 
+  private void resetHelpRequest() {
+    helpRequested = false;
+    retryCounter = 0;
+    nurseNearby = null;
+  }
+
+  private void sendHelpRequest() {
+    ACLMessage helpRequest = new ACLMessage(ACLMessage.REQUEST);
+    helpRequest.addReceiver(nurseNearby);
+    helpRequest.setContent(
+      "Need medical assistance at position: " + position.x + "," + position.y
+    );
+    send(helpRequest);
+    agentSays(
+      "Requesting help from " +
+      nurseNearby.getLocalName() +
+      " at " +
+      position.x +
+      "," +
+      position.y
+    );
+  }
+
   protected void takeDown() {
-    System.out.println("Citizen " + getAID().getName() + " terminating.");
+    agentSays("I Died.");
+    if (isInjured) {
+      mapFrame.updatePosition(getAID().getLocalName(), position, Color.BLACK);
+    }
   }
 
   private class MovementBehaviour extends TickerBehaviour {
@@ -159,7 +188,7 @@ public class CitizenAgent extends Agent {
   }
 
   // -----------------
-  // FINDING THE ROLES OF THE AGENTS
+  // FINDING THE NURSES OF THE AGENTS
   // -----------------
   public void findNurses() {
     DFAgentDescription template = new DFAgentDescription();
@@ -173,14 +202,14 @@ public class CitizenAgent extends Agent {
         for (DFAgentDescription dfd : results) {
           AID nurseAID = dfd.getName();
           if (!nurseAID.equals(getAID())) { // Check if it's not the current agent
-            System.out.println("Found nurse: " + nurseAID.getName());
+            agentSays("Found nurse: " + nurseAID.getLocalName());
             nurseNearby = nurseAID;
             break;
           }
         }
       }
       if (nurseNearby == null) {
-        System.out.println("No available nurse found or all are self.");
+        agentSays("Not avaliable nursers right now");
       }
     } catch (FIPAException fe) {
       fe.printStackTrace();
@@ -204,11 +233,21 @@ public class CitizenAgent extends Agent {
 
     private void handleHealing(ACLMessage msg) {
       isInjured = false; // Citizen is no longer injured
-      System.out.println(
-        getAID().getLocalName() +
-        " has been healed by " +
-        msg.getSender().getLocalName()
+      agentSays(
+        "I have been healed by " + msg.getSender().getLocalName() + "."
       );
+      resetHelpRequest();
     }
   }
+
+  // -----------------
+  // END OF FINDING THE NURSES OF THE AGENTS
+  // -----------------
+
+  protected void agentSays(String message) {
+    System.out.println(getAID().getLocalName() + ": " + message);
+  }
+  // -----------------
+  // REGISTER TO SERVICE
+  // -----------------
 }

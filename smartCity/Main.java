@@ -31,7 +31,7 @@ public class Main {
       int identifier = 0;
       for (int i = 0; i < cityMap.size; i++) {
         for (int j = 0; j < cityMap.size; j++) {
-          if (cityMap.getCell(i, j).equals("House") && identifier < 1) {
+          if (cityMap.getCell(i, j).equals("House") && identifier < 2) {
             generateAgents(
               container,
               "Citizen",
@@ -42,7 +42,7 @@ public class Main {
               colorHandler
             ); // Assuming each cell directly maps to a visual position
           }
-          if (identifier == 1 && cityMap.getCell(i, j).equals("Hospital")) {
+          if (identifier == 2 && cityMap.getCell(i, j).equals("Hospital")) {
             generateAgents(
               container,
               "NurseAgent",
