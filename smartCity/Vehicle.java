@@ -34,4 +34,10 @@ public class Vehicle {
   public double getSpeed() {
     return speed;
   }
+
+  public static Vehicle createRandomVehicle() {
+    String[] types = { "Car", "PoliceCar", "Ambulance", "Firetruck", "Bike" };
+    int idx = (int) (Math.random() * types.length);
+    return new Vehicle(types[idx]);
+  }
 }
