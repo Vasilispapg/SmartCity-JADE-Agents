@@ -2,60 +2,79 @@ package examples.smartCity;
 
 import jade.core.AID;
 import jade.core.Agent;
+import jade.core.behaviours.Behaviour;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.core.behaviours.TickerBehaviour;
-import jade.core.behaviours.WakerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
-import jade.domain.FIPAAgentManagement.SearchConstraints;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import java.awt.Color;
 import java.awt.Point;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 
 public class CitizenAgent extends Agent {
 
+  // TODO: make it work with importance of actions like
+  // if nurse == agent and got a message from citizen then go to him
+  // if has no road/sidewalk or crosswalk in neighbors it cannot move
+
   // Variables for the citizen
-  protected boolean isInjured = false;
-  protected boolean ownsCar;
-  protected Vehicle vehicle; // Vehicle associated with the citizen
-  Point position; // Represents the citizen's position on the map
-  MapFrame mapFrame;
+  private boolean isInjured = false;
+  private boolean ownsCar;
+  private Vehicle vehicle;
+  private Point position;
+  private MapFrame mapFrame;
   private CityMap cityMap;
-  Color color;
+  private Color color;
+  private Boolean inAction = false;
 
   // Variables for finding nurses
   private AID nurseNearby;
-  private boolean helpRequested = false; // Flag to check if help has been requested
+  private boolean helpRequested = false;
 
   // Retry parameters
   private int retryCounter = 0;
   private final int maxRetries = 5;
-  private final long initialDelay = 5000; // milliseconds
+
+  // Variables for movement
+  private Point destination;
+  private boolean usingVehicle;
+  private boolean inTraffic;
+
+  // Pathfinding and movement variables
+  private LinkedList<Point> path = new LinkedList<>();
+  private boolean destinationReached = false;
+
+  // Behaviours
+  private MovementBehaviour movementBehaviour;
+  private DailyActivities dailyActivities;
+  private RequestHelp requestHelp = new RequestHelp();
+  private ReceiveHealingConfirmation receiveHealingConfirmation = new ReceiveHealingConfirmation();
+
+  // initialize the citizen agent
+  CountDownLatch latch;
 
   public CitizenAgent() {
-    ownsCar = Math.random() < 0.7; // 70% chance the citizen owns a car
-    if (ownsCar) {
-      this.vehicle = VehicleFactory.createRandomVehicle(); // A method to create different types of vehicles
+    this.ownsCar = new Random().nextBoolean();
+    // this.ownsCar = false;
+    if (this.ownsCar) {
+      this.vehicle = new Vehicle("Bicycle");
     }
-  }
-
-  public void setCityMap(CityMap cityMap) {
-    this.cityMap = cityMap;
-  }
-
-  public void setMapFrame(MapFrame mapFrame) {
-    this.mapFrame = mapFrame;
-  }
-
-  public void setPosition(Point position) {
-    this.position = position;
-  }
-
-  public void setColor(Color color) {
-    this.color = color;
+    this.usingVehicle = false;
+    this.inTraffic = false;
   }
 
   protected void setup() {
@@ -63,11 +82,16 @@ public class CitizenAgent extends Agent {
     System.out.println(
       "Hello! Citizen-agent " + getAID().getName() + " is ready."
     );
-    if (args != null && args.length == 4) {
+    if (args != null && args.length == 5) {
       this.cityMap = (CityMap) args[0];
       this.mapFrame = (MapFrame) args[1];
       this.position = (Point) args[2];
       this.color = (Color) args[3];
+      this.latch = (CountDownLatch) args[4];
+    } else {
+      agentSays("Error initializing CitizenAgent. Arguments are invalid.");
+      takeDown();
+      return;
     }
 
     if (
@@ -76,27 +100,45 @@ public class CitizenAgent extends Agent {
       this.position == null ||
       this.color == null
     ) {
-      System.err.println(
-        "MapFrame or CityMap or StaticColor not set before setup."
-      );
-      doDelete(); // Terminate agent if not properly initialized
+      agentSays("Error initializing CitizenAgent. Arguments are null.");
+      takeDown(); // Terminate agent if not properly initialized
       return;
     }
 
+    agentSays(
+      "Citizen-agent " +
+      getAID().getLocalName() +
+      " is ready at position " +
+      position
+    );
+
     mapFrame.updatePosition(getAID().getLocalName(), position, color);
 
-    addBehaviour(new MovementBehaviour(this, 1000));
-    addBehaviour(new DailyActivities(this, 1000));
-    addBehaviour(new RequestHelp());
-    addBehaviour(new ReceiveHealingConfirmation());
+    dailyActivities = new DailyActivities(this, 1000);
 
-    if (mapFrame == null || cityMap == null) {
-      System.err.println("MapFrame or CityMap not set before setup.");
-      doDelete(); // Terminate agent if not properly initialized
+    movementBehaviour = new MovementBehaviour(this, 1000);
+
+    agentSays("-------------------------------");
+
+    addBehaviour(movementBehaviour);
+    addBehaviour(dailyActivities);
+    addBehaviour(requestHelp);
+    addBehaviour(receiveHealingConfirmation);
+    agentSays("-------------------------------2");
+  }
+
+  protected class waitBehaviour extends Behaviour {
+
+    public void action() {
+      block(10000);
+    }
+
+    public boolean done() {
+      return true;
     }
   }
 
-  private class DailyActivities extends TickerBehaviour {
+  protected class DailyActivities extends TickerBehaviour {
 
     public DailyActivities(Agent a, long period) {
       super(a, period);
@@ -104,14 +146,14 @@ public class CitizenAgent extends Agent {
 
     public void onTick() {
       double chance = Math.random();
-      if (chance < 0.2 && vehicle.getType() != "Ambulance" && !isInjured) {
+      if (chance < 0.7 && !(myAgent instanceof NurseAgent) && !isInjured) {
         isInjured = true;
         agentSays("I am injured");
       }
     }
   }
 
-  private class RequestHelp extends CyclicBehaviour {
+  protected class RequestHelp extends CyclicBehaviour {
 
     public void action() {
       if (isInjured && !helpRequested) {
@@ -124,73 +166,110 @@ public class CitizenAgent extends Agent {
           helpRequested = true; // Mark that help request is sent
         } else if (retryCounter >= maxRetries) {
           agentSays("No nurse found after maximum retries.");
-          block(); // Stop retrying and wait for other events
+          block(10000); // Stop retrying and wait for other events
           takeDown(); // Terminate the agent
         }
       }
     }
+
+    private void sendHelpRequest() {
+      ACLMessage helpRequest = new ACLMessage(ACLMessage.REQUEST);
+      helpRequest.addReceiver(nurseNearby);
+      helpRequest.setContent(
+        "Need medical assistance at position: " + position.x + "," + position.y
+      );
+      send(helpRequest);
+      agentSays(
+        "Requesting help from " +
+        nurseNearby.getLocalName() +
+        " at " +
+        position.x +
+        "," +
+        position.y
+      );
+    }
   }
 
-  private void resetHelpRequest() {
-    helpRequested = false;
-    retryCounter = 0;
-    nurseNearby = null;
-  }
-
-  private void sendHelpRequest() {
-    ACLMessage helpRequest = new ACLMessage(ACLMessage.REQUEST);
-    helpRequest.addReceiver(nurseNearby);
-    helpRequest.setContent(
-      "Need medical assistance at position: " + position.x + "," + position.y
-    );
-    send(helpRequest);
-    agentSays(
-      "Requesting help from " +
-      nurseNearby.getLocalName() +
-      " at " +
-      position.x +
-      "," +
-      position.y
-    );
+  protected Behaviour[] getBehaviours() {
+    return new Behaviour[] {
+      movementBehaviour,
+      dailyActivities,
+      requestHelp,
+      receiveHealingConfirmation,
+    };
   }
 
   protected void takeDown() {
-    agentSays("I Died.");
-    if (isInjured) {
-      mapFrame.updatePosition(getAID().getLocalName(), position, Color.BLACK);
+    for (Behaviour b : getBehaviours()) {
+      if (b != null) removeBehaviour(b);
     }
+    System.out.println(getLocalName() + ": terminating.");
   }
 
-  private class MovementBehaviour extends TickerBehaviour {
+  protected class MovementBehaviour extends TickerBehaviour {
 
     public MovementBehaviour(Agent a, long period) {
       super(a, period);
+      initializeDestinationAndMode();
     }
 
     protected void onTick() {
-      if (isInjured) {
-        return;
-      }
-      double direction = Math.random();
-      if (direction < 0.25) {
-        position.y = (position.y - 1 + cityMap.size) % cityMap.size;
-      } else if (direction < 0.5) {
-        position.x = (position.x - 1 + cityMap.size) % cityMap.size;
-      } else if (direction < 0.75) {
-        position.y = (position.y + 1) % cityMap.size;
-      } else {
-        position.x = (position.x + 1) % cityMap.size;
-      }
+      try {
+        if (isInjured) return;
+        if (destinationReached || position.equals(destination)) {
+          agentSays("Destination reached at " + position);
+          if (usingVehicle) {
+            agentSays("Parking the vehicle at " + position);
+            // Simulate parking the vehicle
+            cityMap.clearVehiclePosition(position);
+            usingVehicle = false;
+          }
+          destinationReached = false; // Reset the destination flag for next destination
+          initializeDestinationAndMode();
+          return;
+        }
 
-      // Update the map with the new position
-      mapFrame.updatePosition(getAID().getLocalName(), position, color);
+        if (path.isEmpty()) {
+          path = calculatePath(position, destination);
+        }
+
+        // mapFrame.setPath(path); // Update the path on the map
+
+        if (!path.isEmpty()) {
+          Point nextStep = path.poll();
+          if (nextStep != null && isValidMove(nextStep, usingVehicle)) {
+            position.setLocation(nextStep);
+            agentSays(
+              "Moved to " +
+              position +
+              " using " +
+              (usingVehicle ? "vehicle" : "foot")
+            );
+            mapFrame.updatePosition(getAID().getLocalName(), position, color);
+            setPosition(nextStep);
+          } else {
+            // agentSays(
+            //   "Blocked or invalid move to " + nextStep + ". Recalculating..."
+            // );
+            path.clear();
+          }
+        }
+      } catch (Exception e) {
+        System.err.println("Exception in behavior tick: " + e.getMessage());
+        e.printStackTrace();
+      }
     }
+  }
+
+  private void spawnVehicle(Point pos) {
+    agentSays("Vehicle spawned at " + pos);
+    cityMap.setVehiclePosition(pos);
   }
 
   // -----------------
   // FINDING THE NURSES OF THE AGENTS
   // -----------------
-  public void findNurses() {
+  protected void findNurses() {
     DFAgentDescription template = new DFAgentDescription();
     ServiceDescription sd = new ServiceDescription();
     sd.setType("nurse");
@@ -236,7 +315,9 @@ public class CitizenAgent extends Agent {
       agentSays(
         "I have been healed by " + msg.getSender().getLocalName() + "."
       );
-      resetHelpRequest();
+      helpRequested = false;
+      retryCounter = 0;
+      nurseNearby = null;
     }
   }
 
@@ -247,7 +328,473 @@ public class CitizenAgent extends Agent {
   protected void agentSays(String message) {
     System.out.println(getAID().getLocalName() + ": " + message);
   }
+
   // -----------------
-  // REGISTER TO SERVICE
+  // FIND DESTINATION PATH
+  // -----------------
+  private void initializeDestinationAndMode() {
+    if (isInjured) {
+      // findHospitalDestination();
+    } else {
+      if (ownsCar) {
+        findDestination("Road");
+      } else {
+        findDestination("Sidewalk");
+      }
+    }
+
+    if (ownsCar) {
+      initializeMovementToVehicle();
+    } else {
+      // No vehicle, just walk directly to the final destination
+      usingVehicle = false;
+
+      // agentSays("Walking directly to final destination at " + destination);
+      path = calculatePath(position, destination);
+    }
+  }
+
+  private void findDestination(String type) {
+    Point dest;
+    do {
+      int x = new Random().nextInt(cityMap.size);
+      int y = new Random().nextInt(cityMap.size);
+      dest = new Point(x, y);
+    } while (!cityMap.getCell(dest.x, dest.y).contains(type));
+
+    destination = dest;
+    agentSays(type + " destination set to " + destination);
+  }
+
+  private void initializeMovementToVehicle() {
+    Point nearestSidewalkNextToRoad = findNearestRoadOrSidewalk(position, true); // Find sidewalk next to a road
+    if (nearestSidewalkNextToRoad != null && !usingVehicle) {
+      // agentSays(
+      //   "Moving to nearest sidewalk next to road at " +
+      //   nearestSidewalkNextToRoad
+      // );
+      path = calculatePath(position, nearestSidewalkNextToRoad);
+      followPath(); // A method to follow the calculated path
+      // Move to the vehicle
+      findClosestRoad();
+    } else {
+      // Directly move to vehicle if already on a suitable road
+      usingVehicle = true;
+      path =
+        calculatePath(position, findNearestRoadOrSidewalk(position, false));
+      followPath();
+    }
+  }
+
+  private void findClosestRoad() {
+    Point nextStep = null;
+    for (Point p : getNeighbors(position)) {
+      if (cityMap.getCell(p.x, p.y).contains("Road")) {
+        nextStep = p;
+        break;
+      }
+    }
+    if (nextStep == null) {
+      agentSays("No road found nearby");
+      return;
+    }
+    position.setLocation(nextStep);
+    mapFrame.updatePosition(getAID().getLocalName(), position, color);
+    setPosition(nextStep);
+    // agentSays("Moved to " + nextStep);
+    spawnVehicle(nextStep);
+    usingVehicle = true;
+  }
+
+  private void followPath() {
+    while (!path.isEmpty()) {
+      Point nextStep = path.poll();
+      if (isValidMove(nextStep, usingVehicle)) {
+        position.setLocation(nextStep);
+        mapFrame.updatePosition(getAID().getLocalName(), position, color);
+        setPosition(nextStep);
+        // agentSays("Moved to " + nextStep);
+      } else {
+        // agentSays("Recalculating path due to an obstacle at " + nextStep);
+        path = calculatePath(position, destination); // Recalculate if blocked
+      }
+    }
+    if (path.isEmpty()) {
+      // agentSays("Reached destination or next transition point.");
+    }
+  }
+
+  private Point findNearestRoadOrSidewalk(Point start, boolean needsSidewalk) {
+    LinkedList<Point> queue = new LinkedList<>();
+    Set<Point> visited = new HashSet<>();
+    queue.add(start);
+    visited.add(start);
+
+    while (!queue.isEmpty()) {
+      Point current = queue.poll();
+      String cellType = cityMap.getCell(current.x, current.y);
+
+      if (cellType.contains("Road") && !needsSidewalk) {
+        return current; // Found the nearest road
+      }
+
+      // Check if it's a sidewalk and has a road neighbor if sidewalks are needed
+      if (
+        "Sidewalk".equals(cellType) && needsSidewalk && hasRoadNeighbor(current)
+      ) {
+        return current; // Found the nearest sidewalk adjacent to a road
+      }
+
+      for (Point neighbor : getNeighbors(current)) {
+        if (
+          !visited.contains(neighbor) && isTraversableForPathFinding(neighbor)
+        ) {
+          visited.add(neighbor);
+          queue.add(neighbor);
+        }
+      }
+    }
+    return null; // No suitable road or sidewalk found
+  }
+
+  private boolean isTraversableForPathFinding(Point point) {
+    String cell = cityMap.getCell(point.x, point.y);
+    return (
+      cell.contains("Road") ||
+      "Sidewalk".equals(cell) ||
+      "Crosswalk".equals(cell)
+    );
+  }
+
+  private boolean hasRoadNeighbor(Point point) {
+    for (Point neighbor : getNeighbors(point)) {
+      if (cityMap.getCell(neighbor.x, neighbor.y).contains("Road")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private LinkedList<Point> calculatePath(Point start, Point end) {
+    Map<Point, Node> openList = new HashMap<>();
+    Set<Point> closedList = new HashSet<>();
+    Map<Point, Point> cameFrom = new HashMap<>();
+    Map<Point, Integer> gScore = new HashMap<>();
+    PriorityQueue<Node> priorityQueue = new PriorityQueue<>(
+      Comparator.comparingInt(n -> n.f)
+    );
+    agentSays("Calculating path from " + start + " to " + end);
+    Node startNode = new Node(start, 0, manhattanDistance(start, end));
+
+    openList.put(start, startNode);
+    priorityQueue.add(startNode);
+    gScore.put(start, 0);
+    while (!priorityQueue.isEmpty()) {
+      Node current = priorityQueue.poll();
+
+      if (current.position.equals(end)) {
+        // agentSays("Path found to destination: " + end);
+        return reconstructPath(cameFrom, end);
+      }
+
+      openList.remove(current.position);
+      closedList.add(current.position);
+
+      for (Point neighbor : getNeighbors(current.position)) {
+        if (
+          closedList.contains(neighbor) || !isValidMove(neighbor, usingVehicle)
+        ) {
+          continue;
+        }
+        int tentativeGScore = gScore.get(current.position) + 1; // Assuming uniform cost
+        if (
+          !gScore.containsKey(neighbor) ||
+          tentativeGScore < gScore.get(neighbor)
+        ) {
+          cameFrom.put(neighbor, current.position);
+          gScore.put(neighbor, tentativeGScore);
+          int fScore = tentativeGScore + manhattanDistance(neighbor, end);
+          if (!openList.containsKey(neighbor)) {
+            Node neighborNode = new Node(neighbor, tentativeGScore, fScore);
+            openList.put(neighbor, neighborNode);
+            priorityQueue.add(neighborNode);
+          }
+        }
+      }
+    }
+
+    agentSays("Failed to find a path from " + start + " to " + end);
+    return new LinkedList<>(); // Path not found
+  }
+
+  private int manhattanDistance(Point p1, Point p2) {
+    if (p1 == null || p2 == null) return Integer.MAX_VALUE;
+    return Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
+  }
+
+  private List<Point> getNeighbors(Point p) {
+    List<Point> neighbors = new ArrayList<>();
+    int[] dx = { -1, 1, 0, 0 }; // Left, right movements
+    int[] dy = { 0, 0, -1, 1 }; // Up, down movements
+
+    for (int i = 0; i < dx.length; i++) {
+      int newX = p.x + dx[i];
+      int newY = p.y + dy[i];
+
+      // Check bounds
+      if (
+        newX >= 0 && newX < cityMap.size && newY >= 0 && newY < cityMap.size
+      ) {
+        Point neighbor = new Point(newX, newY);
+        neighbors.add(neighbor);
+      }
+    }
+    return neighbors;
+  }
+
+  private LinkedList<Point> reconstructPath(
+    Map<Point, Point> cameFrom,
+    Point current
+  ) {
+    LinkedList<Point> path = new LinkedList<>();
+    path.add(current);
+    while (cameFrom.containsKey(current)) {
+      current = cameFrom.get(current);
+      path.addFirst(current);
+    }
+    return path;
+  }
+
+  private boolean isValidMove(Point nextPosition, boolean usingVehicle) {
+    String cellType = cityMap.getCell(nextPosition.x, nextPosition.y);
+    boolean isValid;
+
+    if (usingVehicle) {
+      isValid = cellType.contains("Road") || cellType.equals("Crosswalk");
+      // if (!isValid) {
+      //   agentSays(
+      //     "Invalid vehicle move to " + nextPosition + " on " + cellType
+      //   );
+      // } else {
+      //   agentSays("Valid vehicle move to " + nextPosition + " on " + cellType);
+      // }
+    } else {
+      isValid =
+        cellType.equals("Sidewalk") ||
+        cellType.equals("Crosswalk") ||
+        cellType.equals("Hospital") ||
+        cellType.equals("House") ||
+        cellType.equals("Police Station") ||
+        cellType.equals("Fire Station");
+      // if (!isValid) {
+      //   agentSays(
+      //     "Invalid pedestrian move to " + nextPosition + " on " + cellType
+      //   );
+      // } else {
+      //   agentSays(
+      //     "Valid pedestrian move to " + nextPosition + " on " + cellType
+      //   );
+      // }
+    }
+
+    return isValid;
+  }
+
+  private class Node {
+
+    Point position;
+    int g; // Cost from start
+    int f; // Total estimated cost
+
+    Node(Point position, int g, int h) {
+      this.position = position;
+      this.g = g;
+      this.f = g + h;
+    }
+  }
+
+  // -----------------
+  // END FIND DESTINATION PATH
+  // -----------------
+
+  // -----------------
+  // GETTERS AND SETTERS
+  // -----------------
+
+  public boolean isInjured() {
+    return isInjured;
+  }
+
+  public void setInjured(boolean isInjured) {
+    this.isInjured = isInjured;
+  }
+
+  public boolean ownsCar() {
+    return ownsCar;
+  }
+
+  public void setOwnsCar(boolean ownsCar) {
+    this.ownsCar = ownsCar;
+  }
+
+  public Vehicle getVehicle() {
+    return vehicle;
+  }
+
+  public void setVehicle(Vehicle vehicle) {
+    this.vehicle = vehicle;
+  }
+
+  public Point getPosition() {
+    return position;
+  }
+
+  public void setPosition(Point position) {
+    this.position = position;
+  }
+
+  public MapFrame getMapFrame() {
+    return mapFrame;
+  }
+
+  public void setMapFrame(MapFrame mapFrame) {
+    this.mapFrame = mapFrame;
+  }
+
+  public CityMap getCityMap() {
+    return cityMap;
+  }
+
+  public void setCityMap(CityMap cityMap) {
+    this.cityMap = cityMap;
+  }
+
+  public Color getColor() {
+    return color;
+  }
+
+  public void setColor(Color color) {
+    this.color = color;
+  }
+
+  public Boolean getInAction() {
+    return inAction;
+  }
+
+  public void setInAction(Boolean inAction) {
+    this.inAction = inAction;
+  }
+
+  public AID getNurseNearby() {
+    return nurseNearby;
+  }
+
+  public void setNurseNearby(AID nurseNearby) {
+    this.nurseNearby = nurseNearby;
+  }
+
+  public boolean isHelpRequested() {
+    return helpRequested;
+  }
+
+  public void setHelpRequested(boolean helpRequested) {
+    this.helpRequested = helpRequested;
+  }
+
+  public int getRetryCounter() {
+    return retryCounter;
+  }
+
+  public void setRetryCounter(int retryCounter) {
+    this.retryCounter = retryCounter;
+  }
+
+  public int getMaxRetries() {
+    return maxRetries;
+  }
+
+  public Point getDestination() {
+    return destination;
+  }
+
+  public void setDestination(Point destination) {
+    this.destination = destination;
+  }
+
+  public boolean isUsingVehicle() {
+    return usingVehicle;
+  }
+
+  public void setUsingVehicle(boolean usingVehicle) {
+    this.usingVehicle = usingVehicle;
+  }
+
+  public boolean isInTraffic() {
+    return inTraffic;
+  }
+
+  public void setInTraffic(boolean inTraffic) {
+    this.inTraffic = inTraffic;
+  }
+
+  public LinkedList<Point> getPath() {
+    return path;
+  }
+
+  public void setPath(LinkedList<Point> path) {
+    this.path = path;
+  }
+
+  public boolean isDestinationReached() {
+    return destinationReached;
+  }
+
+  public void setDestinationReached(boolean destinationReached) {
+    this.destinationReached = destinationReached;
+  }
+
+  public MovementBehaviour getMovementBehaviour() {
+    return movementBehaviour;
+  }
+
+  public void setMovementBehaviour(MovementBehaviour movementBehaviour) {
+    this.movementBehaviour = movementBehaviour;
+  }
+
+  public DailyActivities getDailyActivities() {
+    return dailyActivities;
+  }
+
+  public void setDailyActivities(DailyActivities dailyActivities) {
+    this.dailyActivities = dailyActivities;
+  }
+
+  public RequestHelp getRequestHelp() {
+    return requestHelp;
+  }
+
+  public void setRequestHelp(RequestHelp requestHelp) {
+    this.requestHelp = requestHelp;
+  }
+
+  public ReceiveHealingConfirmation getReceiveHealingConfirmation() {
+    return receiveHealingConfirmation;
+  }
+
+  public void setReceiveHealingConfirmation(
+    ReceiveHealingConfirmation receiveHealingConfirmation
+  ) {
+    this.receiveHealingConfirmation = receiveHealingConfirmation;
+  }
+
+  public CountDownLatch getLatch() {
+    return latch;
+  }
+
+  public void setLatch(CountDownLatch latch) {
+    this.latch = latch;
+  }
+  // -----------------
+  // END GETTERS AND SETTERS
   // -----------------
 }
