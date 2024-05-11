@@ -17,7 +17,8 @@ public class StaticColors {
     colorMap.put("NurseAgent", Color.WHITE);
     colorMap.put("Hospital", Color.WHITE);
     colorMap.put("Police Station", Color.BLUE);
-    colorMap.put("Fire Station", Color.ORANGE);
+    colorMap.put("Fire Station", Color.RED);
+    colorMap.put("Crosswalk", Color.YELLOW);
     colorMap.put("default", Color.BLACK);
   }
 
