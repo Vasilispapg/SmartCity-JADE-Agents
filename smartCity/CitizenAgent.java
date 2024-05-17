@@ -68,8 +68,8 @@ public class CitizenAgent extends Agent {
   CountDownLatch latch;
 
   public CitizenAgent() {
-    this.ownsCar = new Random().nextBoolean();
-    // this.ownsCar = false;
+    // this.ownsCar = new Random().nextBoolean();
+    this.ownsCar = true;
     if (this.ownsCar) {
       this.vehicle = new Vehicle("Bicycle");
     }
@@ -112,12 +112,19 @@ public class CitizenAgent extends Agent {
       position
     );
 
+    position.setLocation(new Point(0, 10));
+    if (cityMap.getCell(position.x, position.y).contains("Road")) {
+      spawnVehicle(position);
+      usingVehicle = true;
+    }
+
     mapFrame.updatePosition(getAID().getLocalName(), position, color);
 
-    dailyActivities = new DailyActivities(this, 1000);
+    dailyActivities = new DailyActivities(this, 10000);
 
     movementBehaviour = new MovementBehaviour(this, 1000);
-
+    destination = new Point(10, 10);
+    // TODO if it has a vehicle and the destination is sidewalk make it to use foot
     agentSays("-------------------------------");
 
     addBehaviour(movementBehaviour);
@@ -125,17 +132,6 @@ public class CitizenAgent extends Agent {
     addBehaviour(requestHelp);
     addBehaviour(receiveHealingConfirmation);
     agentSays("-------------------------------2");
-  }
-
-  protected class waitBehaviour extends Behaviour {
-
-    public void action() {
-      block(10000);
-    }
-
-    public boolean done() {
-      return true;
-    }
   }
 
   protected class DailyActivities extends TickerBehaviour {
@@ -146,7 +142,7 @@ public class CitizenAgent extends Agent {
 
     public void onTick() {
       double chance = Math.random();
-      if (chance < 0.7 && !(myAgent instanceof NurseAgent) && !isInjured) {
+      if (chance < 0.005 && !(myAgent instanceof NurseAgent) && !isInjured) {
         isInjured = true;
         agentSays("I am injured");
       }
@@ -230,14 +226,17 @@ public class CitizenAgent extends Agent {
         }
 
         if (path.isEmpty()) {
+          agentSays("PATH IS EMPTY");
           path = calculatePath(position, destination);
         }
 
-        // mapFrame.setPath(path); // Update the path on the map
+        mapFrame.setPath(path); // Update the path on the map
 
         if (!path.isEmpty()) {
           Point nextStep = path.poll();
-          if (nextStep != null && isValidMove(nextStep, usingVehicle)) {
+          if (
+            nextStep != null && isValidMove(position, nextStep, usingVehicle)
+          ) {
             position.setLocation(nextStep);
             agentSays(
               "Moved to " +
@@ -248,9 +247,6 @@ public class CitizenAgent extends Agent {
             mapFrame.updatePosition(getAID().getLocalName(), position, color);
             setPosition(nextStep);
           } else {
-            // agentSays(
-            //   "Blocked or invalid move to " + nextStep + ". Recalculating..."
-            // );
             path.clear();
           }
         }
@@ -338,19 +334,12 @@ public class CitizenAgent extends Agent {
     } else {
       if (ownsCar) {
         findDestination("Road");
+        initializeMovementToVehicle();
       } else {
         findDestination("Sidewalk");
+        usingVehicle = false;
+        path = calculatePath(position, destination);
       }
-    }
-
-    if (ownsCar) {
-      initializeMovementToVehicle();
-    } else {
-      // No vehicle, just walk directly to the final destination
-      usingVehicle = false;
-
-      // agentSays("Walking directly to final destination at " + destination);
-      path = calculatePath(position, destination);
     }
   }
 
@@ -367,22 +356,35 @@ public class CitizenAgent extends Agent {
   }
 
   private void initializeMovementToVehicle() {
-    Point nearestSidewalkNextToRoad = findNearestRoadOrSidewalk(position, true); // Find sidewalk next to a road
-    if (nearestSidewalkNextToRoad != null && !usingVehicle) {
-      // agentSays(
-      //   "Moving to nearest sidewalk next to road at " +
-      //   nearestSidewalkNextToRoad
-      // );
+    if (!usingVehicle) {
+      Point nearestSidewalkNextToRoad = findNearestRoadOrSidewalk(
+        position,
+        true
+      ); // Find sidewalk next to a road
+
+      if (nearestSidewalkNextToRoad == null) {
+        agentSays("No suitable road or sidewalk found from " + position);
+        return;
+      }
+      agentSays(
+        "Moving to nearest sidewalk next to road at " +
+        nearestSidewalkNextToRoad
+      );
+
       path = calculatePath(position, nearestSidewalkNextToRoad);
+      agentSays("Path to sidewalk: " + path);
       followPath(); // A method to follow the calculated path
       // Move to the vehicle
       findClosestRoad();
     } else {
       // Directly move to vehicle if already on a suitable road
       usingVehicle = true;
-      path =
-        calculatePath(position, findNearestRoadOrSidewalk(position, false));
-      followPath();
+      if (!cityMap.getCell(position.x, position.y).contains("Road")) {
+        agentSays("Not on a road. Finding the nearest road.");
+        path =
+          calculatePath(position, findNearestRoadOrSidewalk(position, false));
+        followPath();
+      }
     }
   }
 
@@ -409,18 +411,22 @@ public class CitizenAgent extends Agent {
   private void followPath() {
     while (!path.isEmpty()) {
       Point nextStep = path.poll();
-      if (isValidMove(nextStep, usingVehicle)) {
+      if (nextStep.equals(position)) {
+        continue; // Skip if the next step is the same as the current position
+      }
+
+      if (isValidMove(position, nextStep, usingVehicle)) {
         position.setLocation(nextStep);
         mapFrame.updatePosition(getAID().getLocalName(), position, color);
         setPosition(nextStep);
-        // agentSays("Moved to " + nextStep);
+        agentSays("Moved to " + nextStep);
       } else {
-        // agentSays("Recalculating path due to an obstacle at " + nextStep);
+        agentSays("Recalculating path due to an obstacle at " + nextStep);
         path = calculatePath(position, destination); // Recalculate if blocked
       }
     }
     if (path.isEmpty()) {
-      // agentSays("Reached destination or next transition point.");
+      agentSays("Reached destination or next transition point.");
     }
   }
 
@@ -433,8 +439,10 @@ public class CitizenAgent extends Agent {
     while (!queue.isEmpty()) {
       Point current = queue.poll();
       String cellType = cityMap.getCell(current.x, current.y);
+      // agentSays("Visiting cell " + current + " of type " + cellType);
 
       if (cellType.contains("Road") && !needsSidewalk) {
+        agentSays("Nearest road found at " + current);
         return current; // Found the nearest road
       }
 
@@ -442,28 +450,19 @@ public class CitizenAgent extends Agent {
       if (
         "Sidewalk".equals(cellType) && needsSidewalk && hasRoadNeighbor(current)
       ) {
+        agentSays("Nearest sidewalk next to road found at " + current);
         return current; // Found the nearest sidewalk adjacent to a road
       }
 
       for (Point neighbor : getNeighbors(current)) {
-        if (
-          !visited.contains(neighbor) && isTraversableForPathFinding(neighbor)
-        ) {
+        if (!visited.contains(neighbor)) {
           visited.add(neighbor);
           queue.add(neighbor);
         }
       }
     }
+    agentSays("No suitable road or sidewalk found from " + start);
     return null; // No suitable road or sidewalk found
-  }
-
-  private boolean isTraversableForPathFinding(Point point) {
-    String cell = cityMap.getCell(point.x, point.y);
-    return (
-      cell.contains("Road") ||
-      "Sidewalk".equals(cell) ||
-      "Crosswalk".equals(cell)
-    );
   }
 
   private boolean hasRoadNeighbor(Point point) {
@@ -502,7 +501,8 @@ public class CitizenAgent extends Agent {
 
       for (Point neighbor : getNeighbors(current.position)) {
         if (
-          closedList.contains(neighbor) || !isValidMove(neighbor, usingVehicle)
+          closedList.contains(neighbor) ||
+          !isValidMove(current.position, neighbor, usingVehicle)
         ) {
           continue;
         }
@@ -565,39 +565,262 @@ public class CitizenAgent extends Agent {
     return path;
   }
 
-  private boolean isValidMove(Point nextPosition, boolean usingVehicle) {
-    String cellType = cityMap.getCell(nextPosition.x, nextPosition.y);
-    boolean isValid;
+  private boolean isValidMove(
+    Point currentPosition,
+    Point nextPosition,
+    boolean usingVehicle
+  ) {
+    String currentCellType = cityMap.getCell(
+      currentPosition.x,
+      currentPosition.y
+    );
+    String nextCellType = cityMap.getCell(nextPosition.x, nextPosition.y);
 
-    if (usingVehicle) {
-      isValid = cellType.contains("Road") || cellType.equals("Crosswalk");
-      // if (!isValid) {
-      //   agentSays(
-      //     "Invalid vehicle move to " + nextPosition + " on " + cellType
-      //   );
-      // } else {
-      //   agentSays("Valid vehicle move to " + nextPosition + " on " + cellType);
-      // }
-    } else {
-      isValid =
-        cellType.equals("Sidewalk") ||
-        cellType.equals("Crosswalk") ||
-        cellType.equals("Hospital") ||
-        cellType.equals("House") ||
-        cellType.equals("Police Station") ||
-        cellType.equals("Fire Station");
-      // if (!isValid) {
-      //   agentSays(
-      //     "Invalid pedestrian move to " + nextPosition + " on " + cellType
-      //   );
-      // } else {
-      //   agentSays(
-      //     "Valid pedestrian move to " + nextPosition + " on " + cellType
-      //   );
-      // }
+    if (currentPosition.equals(nextPosition)) return true;
+    // Check if the next position is within bounds and is traversable
+    if (!cityMap.withinBounds(nextPosition)) {
+      agentSays(
+        "Move to " + nextPosition + " is out of bounds or not traversable."
+      );
+      return false;
     }
 
-    return isValid;
+    // Check vehicle-specific movement rules
+    if (usingVehicle) {
+      return isValidVehicleMove(
+        currentCellType,
+        nextCellType,
+        nextPosition,
+        currentPosition
+      );
+    } else {
+      return isValidPedestrianMove(currentCellType, nextCellType, nextPosition);
+    }
+  }
+
+  private void debugCase(
+    String cases,
+    String nextCellType,
+    Point nextPosition,
+    Point position,
+    int dx,
+    int dy,
+    boolean isValid
+  ) {
+    // agentSays("case: " + cases);
+    // agentSays("Next cell type: " + nextCellType);
+    // agentSays("nextPosition: " + nextPosition + " position: " + position);
+    // agentSays("dx: " + dx + " dy: " + dy);
+    // agentSays("isValid: " + isValid);
+    // agentSays("-----------------");
+  }
+
+  private boolean isValidVehicleMove(
+    String currentCellType,
+    String nextCellType,
+    Point nextPosition,
+    Point position
+  ) {
+    int dx = nextPosition.x - position.x;
+    int dy = nextPosition.y - position.y;
+
+    switch (currentCellType) {
+      case "Road - Go Up Only":
+        debugCase(
+          "Road - Go Up Only",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          (dy == -1 && dx == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          (dy == -1 && dx == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Go Down Only":
+        debugCase(
+          "Road - Go Down Only",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          (dy == 1 && dx == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          (dy == 1 && dx == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Go Left Only":
+        debugCase(
+          "Road - Go Left Only",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          (dx == -1 && dy == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          (dx == -1 && dy == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Go Right Only":
+        debugCase(
+          "Road - Go Right Only",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          (dx == 1 && dy == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          (dx == 1 && dy == 0) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Straight Only":
+        debugCase(
+          "Road - Straight Only",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Straight Only or Turn Right":
+        debugCase(
+          "Road - Straight Only or Turn Right",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Straight Only or Turn Left":
+        debugCase(
+          "Road - Straight Only or Turn Left",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Go Up or Turn Right":
+        debugCase(
+          "Road - Go Up or Turn Right",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          ((dy == -1 && dx == 0) || (dy == 0 && dx == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          ((dy == -1 && dx == 0) || (dy == 0 && dx == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Go Up or Turn Left":
+        debugCase(
+          "Road - Go Up or Turn Left",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          ((dy == -1 && dx == 0) || (dy == 0 && dx == -1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          ((dy == -1 && dx == 0) || (dy == 0 && dx == -1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Go Down or Turn Right":
+        debugCase(
+          "Road - Go Down or Turn Right",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          ((dy == 1 && dx == 0) || (dy == 0 && dx == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          ((dy == 1 && dx == 0) || (dy == 0 && dx == 1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Road - Go Down or Turn Left":
+        debugCase(
+          "Road - Go Down or Turn Left",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          ((dy == 1 && dx == 0) || (dy == 0 && dx == -1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+        return (
+          ((dy == 1 && dx == 0) || (dy == 0 && dx == -1)) &&
+          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
+        );
+      case "Crosswalk":
+        debugCase(
+          "Crosswalk",
+          nextCellType,
+          nextPosition,
+          position,
+          dx,
+          dy,
+          (nextCellType.contains("Road") || nextCellType.equals("Crosswalk"))
+        );
+        return (
+          nextCellType.contains("Road") || nextCellType.equals("Crosswalk")
+        );
+      default:
+        return false;
+    }
+  }
+
+  private boolean isValidPedestrianMove(
+    String currentCellType,
+    String nextCellType,
+    Point nextPosition
+  ) {
+    return (
+      nextCellType.equals("Sidewalk") ||
+      nextCellType.equals("Crosswalk") ||
+      nextCellType.equals("Hospital") ||
+      nextCellType.equals("House") ||
+      nextCellType.equals("Police Station") ||
+      nextCellType.equals("Fire Station")
+    );
   }
 
   private class Node {
