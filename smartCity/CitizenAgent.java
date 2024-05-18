@@ -4,6 +4,7 @@ import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.Behaviour;
 import jade.core.behaviours.CyclicBehaviour;
+import jade.core.behaviours.OneShotBehaviour;
 import jade.core.behaviours.TickerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
@@ -26,10 +27,6 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 public class CitizenAgent extends Agent {
-
-  // TODO: make it work with importance of actions like
-  // if nurse == agent and got a message from citizen then go to him
-  // if has no road/sidewalk or crosswalk in neighbors it cannot move
 
   // Variables for the citizen
   private boolean isInjured = false;
@@ -64,12 +61,11 @@ public class CitizenAgent extends Agent {
   private RequestHelp requestHelp = new RequestHelp();
   private ReceiveHealingConfirmation receiveHealingConfirmation = new ReceiveHealingConfirmation();
 
-  // initialize the citizen agent
+  // Initialize the citizen agent
   CountDownLatch latch;
 
   public CitizenAgent() {
-    // this.ownsCar = new Random().nextBoolean();
-    this.ownsCar = true;
+    this.ownsCar = new Random().nextBoolean();
     if (this.ownsCar) {
       this.vehicle = new Vehicle("Bicycle");
     }
@@ -111,26 +107,24 @@ public class CitizenAgent extends Agent {
       " is ready at position " +
       position
     );
-
-    position.setLocation(new Point(0, 10));
     if (cityMap.getCell(position.x, position.y).contains("Road")) {
       spawnVehicle(position);
       usingVehicle = true;
+      inTraffic = true;
     }
 
     mapFrame.updatePosition(getAID().getLocalName(), position, color);
 
     dailyActivities = new DailyActivities(this, 10000);
-
     movementBehaviour = new MovementBehaviour(this, 1000);
-    destination = new Point(10, 10);
-    // TODO if it has a vehicle and the destination is sidewalk make it to use foot
+
     agentSays("-------------------------------");
 
     addBehaviour(movementBehaviour);
     addBehaviour(dailyActivities);
     addBehaviour(requestHelp);
     addBehaviour(receiveHealingConfirmation);
+
     agentSays("-------------------------------2");
   }
 
@@ -149,43 +143,6 @@ public class CitizenAgent extends Agent {
     }
   }
 
-  protected class RequestHelp extends CyclicBehaviour {
-
-    public void action() {
-      if (isInjured && !helpRequested) {
-        if (nurseNearby == null && retryCounter < maxRetries) {
-          findNurses();
-          retryCounter++;
-        }
-        if (nurseNearby != null) {
-          sendHelpRequest();
-          helpRequested = true; // Mark that help request is sent
-        } else if (retryCounter >= maxRetries) {
-          agentSays("No nurse found after maximum retries.");
-          block(10000); // Stop retrying and wait for other events
-          takeDown(); // Terminate the agent
-        }
-      }
-    }
-
-    private void sendHelpRequest() {
-      ACLMessage helpRequest = new ACLMessage(ACLMessage.REQUEST);
-      helpRequest.addReceiver(nurseNearby);
-      helpRequest.setContent(
-        "Need medical assistance at position: " + position.x + "," + position.y
-      );
-      send(helpRequest);
-      agentSays(
-        "Requesting help from " +
-        nurseNearby.getLocalName() +
-        " at " +
-        position.x +
-        "," +
-        position.y
-      );
-    }
-  }
-
   protected Behaviour[] getBehaviours() {
     return new Behaviour[] {
       movementBehaviour,
@@ -200,66 +157,6 @@ public class CitizenAgent extends Agent {
       if (b != null) removeBehaviour(b);
     }
     System.out.println(getLocalName() + ": terminating.");
-  }
-
-  protected class MovementBehaviour extends TickerBehaviour {
-
-    public MovementBehaviour(Agent a, long period) {
-      super(a, period);
-      initializeDestinationAndMode();
-    }
-
-    protected void onTick() {
-      try {
-        if (isInjured) return;
-        if (destinationReached || position.equals(destination)) {
-          agentSays("Destination reached at " + position);
-          if (usingVehicle) {
-            agentSays("Parking the vehicle at " + position);
-            // Simulate parking the vehicle
-            cityMap.clearVehiclePosition(position);
-            usingVehicle = false;
-          }
-          destinationReached = false; // Reset the destination flag for next destination
-          initializeDestinationAndMode();
-          return;
-        }
-
-        if (path.isEmpty()) {
-          agentSays("PATH IS EMPTY");
-          path = calculatePath(position, destination);
-        }
-
-        mapFrame.setPath(path); // Update the path on the map
-
-        if (!path.isEmpty()) {
-          Point nextStep = path.poll();
-          if (
-            nextStep != null && isValidMove(position, nextStep, usingVehicle)
-          ) {
-            position.setLocation(nextStep);
-            agentSays(
-              "Moved to " +
-              position +
-              " using " +
-              (usingVehicle ? "vehicle" : "foot")
-            );
-            mapFrame.updatePosition(getAID().getLocalName(), position, color);
-            setPosition(nextStep);
-          } else {
-            path.clear();
-          }
-        }
-      } catch (Exception e) {
-        System.err.println("Exception in behavior tick: " + e.getMessage());
-        e.printStackTrace();
-      }
-    }
-  }
-
-  private void spawnVehicle(Point pos) {
-    agentSays("Vehicle spawned at " + pos);
-    cityMap.setVehiclePosition(pos);
   }
 
   // -----------------
@@ -317,32 +214,324 @@ public class CitizenAgent extends Agent {
     }
   }
 
-  // -----------------
-  // END OF FINDING THE NURSES OF THE AGENTS
-  // -----------------
+  protected class RequestHelp extends CyclicBehaviour {
 
-  protected void agentSays(String message) {
-    System.out.println(getAID().getLocalName() + ": " + message);
+    public void action() {
+      if (isInjured && !helpRequested) {
+        if (nurseNearby == null && retryCounter < maxRetries) {
+          findNurses();
+          retryCounter++;
+        }
+        if (nurseNearby != null) {
+          sendHelpRequest();
+          helpRequested = true; // Mark that help request is sent
+        } else if (retryCounter >= maxRetries) {
+          agentSays("No nurse found after maximum retries.");
+          block(10000); // Stop retrying and wait for other events
+          takeDown(); // Terminate the agent
+        }
+      }
+    }
+
+    private void sendHelpRequest() {
+      ACLMessage helpRequest = new ACLMessage(ACLMessage.REQUEST);
+      helpRequest.addReceiver(nurseNearby);
+      helpRequest.setContent(
+        "Need medical assistance at position: " + position.x + "," + position.y
+      );
+      send(helpRequest);
+      agentSays(
+        "Requesting help from " +
+        nurseNearby.getLocalName() +
+        " at " +
+        position.x +
+        "," +
+        position.y
+      );
+    }
   }
+
+  // -----------------
+  // FINDING THE NURSES OF THE AGENTS
+  // -----------------
 
   // -----------------
   // FIND DESTINATION PATH
   // -----------------
-  private void initializeDestinationAndMode() {
-    if (isInjured) {
-      // findHospitalDestination();
-    } else {
-      if (ownsCar) {
-        findDestination("Road");
-        initializeMovementToVehicle();
+
+  protected class MoveToBehaviour extends TickerBehaviour {
+
+    private Point target;
+    private Runnable onComplete;
+    private MovementBehaviour parentBehaviour;
+
+    public MoveToBehaviour(
+      Agent a,
+      long period,
+      Point target,
+      Runnable onComplete,
+      MovementBehaviour parentBehaviour
+    ) {
+      super(a, period);
+      this.target = target;
+      this.onComplete = onComplete;
+      this.parentBehaviour = parentBehaviour;
+    }
+
+    protected void onTick() {
+      if (!path.isEmpty()) {
+        Point nextStep = path.poll();
+        if (isValidMove(position, nextStep, usingVehicle)) {
+          mapFrame.setPath(path);
+          position.setLocation(nextStep);
+          mapFrame.updatePosition(getAID().getLocalName(), position, color);
+          setPosition(nextStep);
+          agentSays("Moved to " + nextStep);
+
+          // Check if we need to switch to walking
+          if (
+            usingVehicle &&
+            cityMap.getCell(nextStep.x, nextStep.y).contains("Sidewalk")
+          ) {
+            usingVehicle = false;
+            inTraffic = false;
+            agentSays("Switching to walking.");
+          }
+        } else {
+          agentSays("Recalculating path due to an obstacle at " + nextStep);
+          path = calculatePath(position, target); // Recalculate if blocked
+        }
       } else {
-        findDestination("Sidewalk");
-        usingVehicle = false;
-        path = calculatePath(position, destination);
+        agentSays("Target " + target + ".");
+        agentSays("Position " + position + ".");
+        agentSays("Reached the end of the path.");
+        stop();
+        if (onComplete != null) {
+          onComplete.run();
+        }
+        parentBehaviour.setMoveToBehaviourActive(false); // Mark that MoveToBehaviour is no longer active
       }
     }
   }
 
+  protected class MovementBehaviour extends TickerBehaviour {
+
+    private boolean moveToBehaviourActive = false;
+
+    public MovementBehaviour(Agent a, long period) {
+      super(a, period);
+      findDestination();
+    }
+
+    protected void onTick() {
+      try {
+        if (isInjured) return;
+
+        if (destinationReached || position.equals(destination)) {
+          agentSays("Destination reached at " + position);
+          if (usingVehicle) {
+            agentSays("Parking the vehicle at " + position);
+            cityMap.clearVehiclePosition(position);
+            usingVehicle = false;
+            inTraffic = false;
+          }
+          destinationReached = false;
+          destination = null;
+          path.clear();
+          findDestination();
+          return;
+        }
+
+        if (destination == null) findDestination();
+        agentSays("Moving from " + position + " to " + destination);
+
+        String typeOfDestination = cityMap.getCell(
+          destination.x,
+          destination.y
+        );
+
+        if (manhattanDistance(position, destination) > 14) {
+          if (ownsCar) {
+            if (
+              typeOfDestination.equals("Crosswalk") ||
+              typeOfDestination.contains("Road")
+            ) {
+              if (usingVehicle) {
+                // I'm on the road and the destination is a road, so I'll keep going
+                transitionToMoveToBehaviour(destination);
+              } else {
+                // I'm not on the road, so I'll go to the nearest road
+                agentSays("1");
+                Point nearestRoad = findNearestRoadOrSidewalk(position, false);
+                Point nearestSidewalk = findNearestRoadOrSidewalk(
+                  nearestRoad,
+                  true
+                );
+                transitionToMoveToBehaviour(
+                  nearestSidewalk,
+                  () -> {
+                    agentSays(
+                      "Reached the vehicle. Now driving to the destination."
+                    );
+                    usingVehicle = true;
+                    inTraffic = true;
+                    spawnVehicle(nearestRoad);
+                    setPosition(nearestRoad);
+                    transitionToMoveToBehaviour(destination);
+                  }
+                );
+              }
+            } else {
+              // The destination is not a road, so I'll go to the nearest road and drive
+              if (usingVehicle) {
+                agentSays("2");
+                Point nearestRoadToPark = findNearestRoadOrSidewalk(
+                  destination,
+                  false
+                );
+                transitionToMoveToBehaviour(
+                  nearestRoadToPark,
+                  () -> {
+                    agentSays(
+                      "Reached the nearest Road. Now parking the vehicle."
+                    );
+                    usingVehicle = false;
+                    inTraffic = false;
+                    agentSays("3");
+                    Point nearestSidewalk = findNearestRoadOrSidewalk(
+                      destination,
+                      true
+                    );
+                    setPosition(nearestSidewalk);
+                    transitionToMoveToBehaviour(destination);
+                  }
+                );
+              } else {
+                agentSays("4");
+                usingVehicle = false;
+                inTraffic = false;
+                Point nearestRoad = findNearestRoadOrSidewalk(position, false);
+                Point nearestSidewalkToRoad = findNearestRoadOrSidewalk(
+                  nearestRoad,
+                  true
+                );
+                transitionToMoveToBehaviour(
+                  nearestSidewalkToRoad,
+                  () -> {
+                    agentSays(
+                      "Reached the nearest Road. Now driving to the destination."
+                    );
+                    usingVehicle = true;
+                    inTraffic = true;
+                    spawnVehicle(nearestRoad);
+                    setPosition(nearestRoad);
+                    // Now that we're on the road, we can drive to the destination
+                    // the destination is not a road, so I'll go to the nearest road and drive
+                    Point nearestRoadToPark = findNearestRoadOrSidewalk(
+                      destination,
+                      false
+                    );
+                    transitionToMoveToBehaviour(
+                      nearestRoadToPark,
+                      () -> {
+                        agentSays(
+                          "Reached the nearest Road. Now parking the vehicle."
+                        );
+                        usingVehicle = false;
+                        inTraffic = false;
+                        agentSays("4a");
+                        Point nearestSidewalk = findNearestRoadOrSidewalk(
+                          nearestRoadToPark,
+                          true
+                        );
+                        setPosition(nearestSidewalk);
+                        transitionToMoveToBehaviour(destination);
+                      }
+                    );
+                  }
+                );
+              }
+            }
+          } else {
+            // I don't have a car so I'm going to walk
+            usingVehicle = false;
+            inTraffic = false;
+            transitionToMoveToBehaviour(destination);
+          }
+        } else {
+          // It's near, so I'm going to walk
+          if (!usingVehicle) {
+            usingVehicle = false;
+            inTraffic = false;
+            transitionToMoveToBehaviour(destination);
+          } else {
+            // If it's near and I'm on the road I have to park
+            agentSays("5");
+            Point nearestRoadToPark = findNearestRoadOrSidewalk(
+              destination,
+              true
+            );
+            transitionToMoveToBehaviour(
+              nearestRoadToPark,
+              () -> {
+                agentSays("Reached the nearest Road. Now parking the vehicle.");
+                usingVehicle = false;
+                inTraffic = false;
+                agentSays("5a");
+                Point nearestSidewalk = findNearestRoadOrSidewalk(
+                  destination,
+                  true
+                );
+                setPosition(nearestSidewalk);
+                transitionToMoveToBehaviour(destination);
+              }
+            );
+          }
+        }
+      } catch (Exception e) {
+        System.err.println("Exception in behavior tick: " + e.getMessage());
+        e.printStackTrace();
+      }
+    }
+
+    private void transitionToMoveToBehaviour(Point target) {
+      transitionToMoveToBehaviour(target, null);
+    }
+
+    public void setMoveToBehaviourActive(boolean isActive) {
+      moveToBehaviourActive = isActive;
+    }
+
+    private void transitionToMoveToBehaviour(
+      Point target,
+      Runnable onComplete
+    ) {
+      if (!moveToBehaviourActive) { // Ensure only one MoveToBehaviour runs at a time
+        path = calculatePath(position, target);
+        if (path != null && !path.isEmpty()) {
+          moveToBehaviourActive = true;
+          addBehaviour(
+            new MoveToBehaviour(
+              CitizenAgent.this,
+              1000,
+              target,
+              onComplete,
+              this
+            )
+          );
+        } else {
+          agentSays("Failed to find a path from " + position + " to " + target);
+        }
+      }
+    }
+  }
+
+  private void spawnVehicle(Point pos) {
+    agentSays("Vehicle spawned at " + pos);
+    cityMap.setVehiclePosition(pos);
+  }
+
+  @SuppressWarnings("unused")
   private void findDestination(String type) {
     Point dest;
     do {
@@ -355,79 +544,22 @@ public class CitizenAgent extends Agent {
     agentSays(type + " destination set to " + destination);
   }
 
-  private void initializeMovementToVehicle() {
-    if (!usingVehicle) {
-      Point nearestSidewalkNextToRoad = findNearestRoadOrSidewalk(
-        position,
-        true
-      ); // Find sidewalk next to a road
+  private void findDestination() {
+    Point dest;
+    do {
+      int x = new Random().nextInt(cityMap.size);
+      int y = new Random().nextInt(cityMap.size);
+      dest = new Point(x, y);
+    } while (
+      !cityMap
+        .getCell(dest.x, dest.y)
+        .matches(
+          "Sidewalk|Road|Crosswalk|Hospital|House|Police Station|Fire Station"
+        )
+    );
 
-      if (nearestSidewalkNextToRoad == null) {
-        agentSays("No suitable road or sidewalk found from " + position);
-        return;
-      }
-      agentSays(
-        "Moving to nearest sidewalk next to road at " +
-        nearestSidewalkNextToRoad
-      );
-
-      path = calculatePath(position, nearestSidewalkNextToRoad);
-      agentSays("Path to sidewalk: " + path);
-      followPath(); // A method to follow the calculated path
-      // Move to the vehicle
-      findClosestRoad();
-    } else {
-      // Directly move to vehicle if already on a suitable road
-      usingVehicle = true;
-      if (!cityMap.getCell(position.x, position.y).contains("Road")) {
-        agentSays("Not on a road. Finding the nearest road.");
-        path =
-          calculatePath(position, findNearestRoadOrSidewalk(position, false));
-        followPath();
-      }
-    }
-  }
-
-  private void findClosestRoad() {
-    Point nextStep = null;
-    for (Point p : getNeighbors(position)) {
-      if (cityMap.getCell(p.x, p.y).contains("Road")) {
-        nextStep = p;
-        break;
-      }
-    }
-    if (nextStep == null) {
-      agentSays("No road found nearby");
-      return;
-    }
-    position.setLocation(nextStep);
-    mapFrame.updatePosition(getAID().getLocalName(), position, color);
-    setPosition(nextStep);
-    // agentSays("Moved to " + nextStep);
-    spawnVehicle(nextStep);
-    usingVehicle = true;
-  }
-
-  private void followPath() {
-    while (!path.isEmpty()) {
-      Point nextStep = path.poll();
-      if (nextStep.equals(position)) {
-        continue; // Skip if the next step is the same as the current position
-      }
-
-      if (isValidMove(position, nextStep, usingVehicle)) {
-        position.setLocation(nextStep);
-        mapFrame.updatePosition(getAID().getLocalName(), position, color);
-        setPosition(nextStep);
-        agentSays("Moved to " + nextStep);
-      } else {
-        agentSays("Recalculating path due to an obstacle at " + nextStep);
-        path = calculatePath(position, destination); // Recalculate if blocked
-      }
-    }
-    if (path.isEmpty()) {
-      agentSays("Reached destination or next transition point.");
-    }
+    destination = dest;
+    agentSays("Destination set to " + destination);
   }
 
   private Point findNearestRoadOrSidewalk(Point start, boolean needsSidewalk) {
@@ -439,14 +571,12 @@ public class CitizenAgent extends Agent {
     while (!queue.isEmpty()) {
       Point current = queue.poll();
       String cellType = cityMap.getCell(current.x, current.y);
-      // agentSays("Visiting cell " + current + " of type " + cellType);
 
       if (cellType.contains("Road") && !needsSidewalk) {
         agentSays("Nearest road found at " + current);
         return current; // Found the nearest road
       }
 
-      // Check if it's a sidewalk and has a road neighbor if sidewalks are needed
       if (
         "Sidewalk".equals(cellType) && needsSidewalk && hasRoadNeighbor(current)
       ) {
@@ -492,7 +622,6 @@ public class CitizenAgent extends Agent {
       Node current = priorityQueue.poll();
 
       if (current.position.equals(end)) {
-        // agentSays("Path found to destination: " + end);
         return reconstructPath(cameFrom, end);
       }
 
@@ -541,7 +670,6 @@ public class CitizenAgent extends Agent {
       int newX = p.x + dx[i];
       int newY = p.y + dy[i];
 
-      // Check bounds
       if (
         newX >= 0 && newX < cityMap.size && newY >= 0 && newY < cityMap.size
       ) {
@@ -577,7 +705,7 @@ public class CitizenAgent extends Agent {
     String nextCellType = cityMap.getCell(nextPosition.x, nextPosition.y);
 
     if (currentPosition.equals(nextPosition)) return true;
-    // Check if the next position is within bounds and is traversable
+
     if (!cityMap.withinBounds(nextPosition)) {
       agentSays(
         "Move to " + nextPosition + " is out of bounds or not traversable."
@@ -585,7 +713,6 @@ public class CitizenAgent extends Agent {
       return false;
     }
 
-    // Check vehicle-specific movement rules
     if (usingVehicle) {
       return isValidVehicleMove(
         currentCellType,
@@ -596,23 +723,6 @@ public class CitizenAgent extends Agent {
     } else {
       return isValidPedestrianMove(currentCellType, nextCellType, nextPosition);
     }
-  }
-
-  private void debugCase(
-    String cases,
-    String nextCellType,
-    Point nextPosition,
-    Point position,
-    int dx,
-    int dy,
-    boolean isValid
-  ) {
-    // agentSays("case: " + cases);
-    // agentSays("Next cell type: " + nextCellType);
-    // agentSays("nextPosition: " + nextPosition + " position: " + position);
-    // agentSays("dx: " + dx + " dy: " + dy);
-    // agentSays("isValid: " + isValid);
-    // agentSays("-----------------");
   }
 
   private boolean isValidVehicleMove(
@@ -626,180 +736,61 @@ public class CitizenAgent extends Agent {
 
     switch (currentCellType) {
       case "Road - Go Up Only":
-        debugCase(
-          "Road - Go Up Only",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          (dy == -1 && dx == 0) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           (dy == -1 && dx == 0) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Go Down Only":
-        debugCase(
-          "Road - Go Down Only",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          (dy == 1 && dx == 0) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           (dy == 1 && dx == 0) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Go Left Only":
-        debugCase(
-          "Road - Go Left Only",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          (dx == -1 && dy == 0) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           (dx == -1 && dy == 0) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Go Right Only":
-        debugCase(
-          "Road - Go Right Only",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          (dx == 1 && dy == 0) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           (dx == 1 && dy == 0) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Straight Only":
-        debugCase(
-          "Road - Straight Only",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Straight Only or Turn Right":
-        debugCase(
-          "Road - Straight Only or Turn Right",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Straight Only or Turn Left":
-        debugCase(
-          "Road - Straight Only or Turn Left",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           ((Math.abs(dx) == 1 && dy == 0) || (dx == 0 && Math.abs(dy) == 1)) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Go Up or Turn Right":
-        debugCase(
-          "Road - Go Up or Turn Right",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          ((dy == -1 && dx == 0) || (dy == 0 && dx == 1)) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           ((dy == -1 && dx == 0) || (dy == 0 && dx == 1)) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Go Up or Turn Left":
-        debugCase(
-          "Road - Go Up or Turn Left",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          ((dy == -1 && dx == 0) || (dy == 0 && dx == -1)) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           ((dy == -1 && dx == 0) || (dy == 0 && dx == -1)) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Go Down or Turn Right":
-        debugCase(
-          "Road - Go Down or Turn Right",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          ((dy == 1 && dx == 0) || (dy == 0 && dx == 1)) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           ((dy == 1 && dx == 0) || (dy == 0 && dx == 1)) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Road - Go Down or Turn Left":
-        debugCase(
-          "Road - Go Down or Turn Left",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          ((dy == 1 && dx == 0) || (dy == 0 && dx == -1)) &&
-          (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
-        );
         return (
           ((dy == 1 && dx == 0) || (dy == 0 && dx == -1)) &&
           (nextCellType.contains("Road") || nextCellType.contains("Crosswalk"))
         );
       case "Crosswalk":
-        debugCase(
-          "Crosswalk",
-          nextCellType,
-          nextPosition,
-          position,
-          dx,
-          dy,
-          (nextCellType.contains("Road") || nextCellType.equals("Crosswalk"))
-        );
         return (
           nextCellType.contains("Road") || nextCellType.equals("Crosswalk")
         );
@@ -1017,7 +1008,12 @@ public class CitizenAgent extends Agent {
   public void setLatch(CountDownLatch latch) {
     this.latch = latch;
   }
+
   // -----------------
   // END GETTERS AND SETTERS
   // -----------------
+
+  protected void agentSays(String message) {
+    System.out.println(getAID().getLocalName() + ": " + message);
+  }
 }
