@@ -11,7 +11,6 @@ import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import java.awt.Point;
-import java.util.LinkedList;
 
 public class NurseAgent extends CitizenAgent {
 
@@ -25,6 +24,7 @@ public class NurseAgent extends CitizenAgent {
     registerService();
 
     agentSays("I am a Nurse Agent. I am ready to serve.");
+    setOwnsCar(true);
     if (ownsCar()) {
       setVehicle(new Vehicle("Ambulance"));
       agentSays(
@@ -53,8 +53,7 @@ public class NurseAgent extends CitizenAgent {
             agentSays(
               "received a message from " + msg.getSender().getLocalName()
             );
-
-            myAgent.removeBehaviour(getMovementBehaviour());
+            setDestination(null);
             String content = msg.getContent();
             Point targetPosition = parsePosition(content);
             try {
@@ -110,73 +109,64 @@ public class NurseAgent extends CitizenAgent {
       super(a, 1000);
       this.targetPosition = targetPosition;
       this.targetAgent = targetAgent;
-      setPath(new LinkedList<>()); // Reset the moving path to empty
+      // Set the global destination to the injured position
+      setDestination(targetPosition);
+
+      // add the new behavior to the agent
+      if (getMovementBehaviour() != null) removeBehaviour(
+        getMovementBehaviour()
+      );
+      MovementBehaviour movementBehaviour = new MovementBehaviour(
+        myAgent,
+        1000
+      );
+      setMovementBehaviour(movementBehaviour);
+      addBehaviour(movementBehaviour);
+      // add the new behavior to the agent
+      agentSays(
+        "Moving to " +
+        targetPosition +
+        " to heal " +
+        targetAgent.getLocalName() +
+        "My destination is " +
+        getDestination()
+      );
     }
 
     protected void onTick() {
-      // Horizontal movement
-      Point position = getPosition();
-      if (position.x < targetPosition.x) {
-        position.x++;
-      } else if (position.x > targetPosition.x) {
-        position.x--;
-      }
-
-      // Vertical movement
-      if (position.y < targetPosition.y) {
-        position.y++;
-      } else if (position.y > targetPosition.y) {
-        position.y--;
-      }
-
-      //   agentSays(
-      //     "position: " + position + ", target position: " + targetPosition
-      //   );
-
-      // Update the position on the map after moving
-
-      getMapFrame()
-        .updatePosition(getAID().getLocalName(), position, getColor());
-      setPosition(position);
-      //   agentSays("moved to " + position.x + "," + position.y);
-
-      // Check if reached the target position
-      if (targetPosition.equals(getPosition())) { // If no move was made, we're at the target position
+      if (getPosition().equals(targetPosition)) {
         performHealing();
-        agentSays(
-          "Moved to the target position which is " +
-          targetPosition +
-          "i am at " +
-          getPosition()
-        );
+        // Reset or clear the destination after healing
+        setDestination(null);
+        setDestinationReached(true);
+        // Optionally set a new destination here or leave it to other behaviors
+        findDestination();
         stop();
       }
     }
 
     private void performHealing() {
-      agentSays("healing " + targetAgent.getLocalName());
-      // send message to the injured agent
+      // Healing logic here
+      agentSays(
+        "Healing " + targetAgent.getLocalName() + " at " + getPosition()
+      );
+      // Send healing confirmation to the injured agent
       ACLMessage healConfirm = new ACLMessage(ACLMessage.INFORM);
       healConfirm.addReceiver(targetAgent);
       healConfirm.setContent("Healed at " + getPosition());
       send(healConfirm);
 
-      agentSays(
-        "healed " + targetAgent.getLocalName() + " at " + getPosition()
-      );
-      // getPosition().setLocation(new Point(2, 2)); // Reset the position
-
-      backToWork(myAgent);
+      // Post-healing routines or cleanup
+      backToWork();
     }
-  }
 
-  private void backToWork(Agent a) {
-    a.addBehaviour(getMovementBehaviour()); // Add the regular movement behaviour
-    isBusy = false;
-    registerService();
-
-    agentSays("back to work.");
-    agentSays("ready to serve again my current position is " + getPosition());
+    private void backToWork() {
+      // Reset busy state and re-enable normal movement behaviors
+      isBusy = false;
+      registerService();
+      // addBehaviour(new MovementBehaviour(myAgent, 1000));
+      agentSays("I'm available for service");
+    }
   }
 
   @Override
