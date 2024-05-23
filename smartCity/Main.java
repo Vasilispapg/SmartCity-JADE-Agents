@@ -6,10 +6,14 @@ import jade.core.Runtime;
 import jade.wrapper.AgentContainer;
 import jade.wrapper.AgentController;
 import java.awt.Point;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import javax.swing.SwingUtilities;
 
 public class Main {
+
+  private static List<CitizenAgent> agents = new ArrayList<>();
 
   public static void main(String[] args) {
     // 8 = 1 neighbor, 16 = 4 neighbors, 32 = 16 neighbors, etc.
@@ -19,7 +23,7 @@ public class Main {
       mapFrame.setVisible(true);
       StaticColors colorHandler = new StaticColors();
 
-      int totalAgents = 2; // Update this based on how many agents you are starting
+      int totalAgents = 1; // Update this based on how many agents you are starting
       CountDownLatch latch = new CountDownLatch(totalAgents);
 
       // Start JADE runtime and setup agents
@@ -36,7 +40,7 @@ public class Main {
         int identifier = 0;
         for (int i = 0; i < cityMap.size; i++) {
           for (int j = 0; j < cityMap.size; j++) {
-            if (cityMap.getCell(i, j).equals("House") && identifier == 0) {
+            if (cityMap.getCell(i, j).equals("House") && identifier < 2) {
               generateAgents(
                 container,
                 "Citizen",
@@ -46,12 +50,26 @@ public class Main {
                 new Point(i, j),
                 colorHandler,
                 latch
-              ); // Assuming each cell directly maps to a visual position
+              );
             }
-            if (identifier == 1 && cityMap.getCell(i, j).equals("Hospital")) {
+            if (
+              identifier < 3 && cityMap.getCell(i, j).equals("PoliceStation")
+            ) {
               generateAgents(
                 container,
-                "NurseAgent",
+                "PoliceAgent",
+                identifier++,
+                cityMap,
+                mapFrame,
+                new Point(i, j),
+                colorHandler,
+                latch
+              );
+            }
+            if (identifier < 2 && cityMap.getCell(i, j).equals("Hospital")) {
+              generateAgents(
+                container,
+                "ThiefAgent",
                 identifier++,
                 cityMap,
                 mapFrame,
@@ -105,6 +123,7 @@ public class Main {
         args
       );
       ac.start();
+      // TODO : H LISTA EINAI ADEIA TSEKARE AYTO ME TO AID POY TOYS KANEIS EGGRAFIS NA DOYME TI PAIZEI
     } catch (Exception e) {
       System.err.println(
         "MAIN SYSTEM: Exception starting agent: " + e.toString()
