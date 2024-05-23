@@ -4,7 +4,6 @@ import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.Behaviour;
 import jade.core.behaviours.CyclicBehaviour;
-import jade.core.behaviours.OneShotBehaviour;
 import jade.core.behaviours.TickerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
@@ -37,6 +36,9 @@ public class CitizenAgent extends Agent {
   private CityMap cityMap;
   private Color color;
   private Boolean inAction = false;
+  private double balance = 1000.0;
+  private double previousBalance = balance;
+  private double awarenessRange = 50.0;
 
   // Variables for finding nurses
   private AID nurseNearby;
@@ -94,12 +96,15 @@ public class CitizenAgent extends Agent {
       this.mapFrame == null ||
       this.cityMap == null ||
       this.position == null ||
-      this.color == null
+      this.color == null ||
+      this.latch == null
     ) {
       agentSays("Error initializing CitizenAgent. Arguments are null.");
       takeDown(); // Terminate agent if not properly initialized
       return;
     }
+
+    AgentRegistry.registerAgent(this);
 
     agentSays(
       "Citizen-agent " +
@@ -107,6 +112,8 @@ public class CitizenAgent extends Agent {
       " is ready at position " +
       position
     );
+
+    // Ensure the agent is spawned on a road
     if (cityMap.getCell(position.x, position.y).contains("Road")) {
       spawnVehicle(position);
       usingVehicle = true;
@@ -115,17 +122,27 @@ public class CitizenAgent extends Agent {
 
     mapFrame.updatePosition(getAID().getLocalName(), position, color);
 
-    dailyActivities = new DailyActivities(this, 10000);
+    dailyActivities = new DailyActivities(this, 1000);
     movementBehaviour = new MovementBehaviour(this, 1000);
-
-    agentSays("-------------------------------");
 
     addBehaviour(movementBehaviour);
     addBehaviour(dailyActivities);
     addBehaviour(requestHelp);
     addBehaviour(receiveHealingConfirmation);
+    addLocationHandlingBehaviour();
 
-    agentSays("-------------------------------2");
+    // IMPORT INTO THE NETWOK
+    try {
+      DFAgentDescription dfd = new DFAgentDescription();
+      dfd.setName(getAID());
+      ServiceDescription sd = new ServiceDescription();
+      sd.setType("citizen");
+      sd.setName(getLocalName());
+      dfd.addServices(sd);
+      DFService.register(this, dfd);
+    } catch (FIPAException fe) {
+      fe.printStackTrace();
+    }
   }
 
   protected class DailyActivities extends TickerBehaviour {
@@ -136,7 +153,7 @@ public class CitizenAgent extends Agent {
 
     public void onTick() {
       double chance = Math.random();
-      if (chance < 0.005 && !(myAgent instanceof NurseAgent) && !isInjured) {
+      if (chance < 0.0005 && !(myAgent instanceof NurseAgent) && !isInjured) {
         isInjured = true;
         agentSays("I am injured");
       }
@@ -157,6 +174,7 @@ public class CitizenAgent extends Agent {
       if (b != null) removeBehaviour(b);
     }
     System.out.println(getLocalName() + ": terminating.");
+    AgentRegistry.deregisterAgent(this);
   }
 
   // -----------------
@@ -279,6 +297,7 @@ public class CitizenAgent extends Agent {
     }
 
     protected void onTick() {
+      if (isInjured) return;
       if (!path.isEmpty()) {
         Point nextStep = path.poll();
         if (isValidMove(position, nextStep, usingVehicle)) {
@@ -291,7 +310,15 @@ public class CitizenAgent extends Agent {
           // Check if we need to switch to walking
           if (
             usingVehicle &&
-            cityMap.getCell(nextStep.x, nextStep.y).contains("Sidewalk")
+            (
+              cityMap.getCell(nextStep.x, nextStep.y).contains("Sidewalk") ||
+              cityMap.getCell(nextStep.x, nextStep.y).contains("Hospital") ||
+              cityMap.getCell(nextStep.x, nextStep.y).contains("House") ||
+              cityMap
+                .getCell(nextStep.x, nextStep.y)
+                .contains("Police Station") ||
+              cityMap.getCell(nextStep.x, nextStep.y).contains("Fire Station")
+            )
           ) {
             usingVehicle = false;
             inTraffic = false;
@@ -336,9 +363,7 @@ public class CitizenAgent extends Agent {
             inTraffic = false;
           }
           destinationReached = false;
-          destination = null;
-          path.clear();
-          findDestination();
+          clearDestination();
           return;
         }
 
@@ -349,6 +374,12 @@ public class CitizenAgent extends Agent {
           destination.x,
           destination.y
         );
+
+        if (typeOfDestination.contains("Road") && !ownsCar) {
+          agentSays("I don't have a car so I can't go to the road");
+          clearDestination();
+          return;
+        }
 
         if (manhattanDistance(position, destination) > 14) {
           if (ownsCar) {
@@ -453,7 +484,6 @@ public class CitizenAgent extends Agent {
               }
             }
           } else {
-            // I don't have a car so I'm going to walk
             usingVehicle = false;
             inTraffic = false;
             transitionToMoveToBehaviour(destination);
@@ -461,13 +491,34 @@ public class CitizenAgent extends Agent {
         } else {
           // It's near, so I'm going to walk
           if (!usingVehicle) {
-            usingVehicle = false;
-            inTraffic = false;
-            transitionToMoveToBehaviour(destination);
+            if (typeOfDestination.contains("Road") && ownsCar) {
+              Point nearestSidewalk = findNearestRoadOrSidewalk(
+                destination,
+                true
+              );
+              transitionToMoveToBehaviour(
+                nearestSidewalk,
+                () -> {
+                  agentSays(
+                    "Reached the vehicle. Now driving to the destination."
+                  );
+                  usingVehicle = true;
+                  inTraffic = true;
+                  spawnVehicle(destination);
+                  setPosition(destination);
+                }
+              );
+            } else {
+              transitionToMoveToBehaviour(destination);
+            }
           } else {
             // If it's near and I'm on the road I have to park
             agentSays("5");
             Point nearestRoadToPark = findNearestRoadOrSidewalk(
+              destination,
+              false
+            );
+            Point nearestSidewalkToStep = findNearestRoadOrSidewalk(
               destination,
               true
             );
@@ -478,11 +529,7 @@ public class CitizenAgent extends Agent {
                 usingVehicle = false;
                 inTraffic = false;
                 agentSays("5a");
-                Point nearestSidewalk = findNearestRoadOrSidewalk(
-                  destination,
-                  true
-                );
-                setPosition(nearestSidewalk);
+                setPosition(nearestSidewalkToStep);
                 transitionToMoveToBehaviour(destination);
               }
             );
@@ -526,6 +573,34 @@ public class CitizenAgent extends Agent {
     }
   }
 
+  // respondes to request of position
+  private void addLocationHandlingBehaviour() {
+    addBehaviour(
+      new CyclicBehaviour(this) {
+        public void action() {
+          ACLMessage msg = receive(
+            MessageTemplate.MatchPerformative(ACLMessage.REQUEST)
+          );
+          if (msg != null && "Requesting location".equals(msg.getContent())) {
+            ACLMessage reply = msg.createReply();
+            reply.setPerformative(ACLMessage.INFORM);
+            Point myPosition = getPosition();
+            reply.setContent(myPosition.x + "," + myPosition.y);
+            send(reply);
+          } else {
+            block();
+          }
+        }
+      }
+    );
+  }
+
+  protected void clearDestination() {
+    destination = null;
+    path.clear();
+    destinationReached = false;
+  }
+
   private void spawnVehicle(Point pos) {
     agentSays("Vehicle spawned at " + pos);
     cityMap.setVehiclePosition(pos);
@@ -544,7 +619,11 @@ public class CitizenAgent extends Agent {
     agentSays(type + " destination set to " + destination);
   }
 
-  private void findDestination() {
+  protected void findDestination() {
+    if (destination != null) {
+      agentSays("Destination already set to " + destination);
+      return;
+    }
     Point dest;
     do {
       int x = new Random().nextInt(cityMap.size);
@@ -1009,11 +1088,91 @@ public class CitizenAgent extends Agent {
     this.latch = latch;
   }
 
+  public double getBalance() {
+    return balance;
+  }
+
+  public void setBalance(double balance) {
+    this.balance = balance;
+  }
+
+  public void setPreviousBalance(double previousBalance) {
+    this.previousBalance = previousBalance;
+  }
+
+  public double getPreviousBalance() {
+    return previousBalance;
+  }
+
+  public double getAwarenessRange() {
+    return awarenessRange;
+  }
+
+  public void setAwarenessRange(double awarenessRange) {
+    this.awarenessRange = awarenessRange;
+  }
+
   // -----------------
   // END GETTERS AND SETTERS
   // -----------------
 
   protected void agentSays(String message) {
     System.out.println(getAID().getLocalName() + ": " + message);
+  }
+
+  private void initiateLocationRequests() {
+    DFAgentDescription template = new DFAgentDescription();
+    ServiceDescription sd = new ServiceDescription();
+    sd.setType("citizen");
+    template.addServices(sd);
+
+    try {
+      DFAgentDescription[] results = DFService.search(this, template);
+      ACLMessage locationRequest = new ACLMessage(ACLMessage.REQUEST);
+      locationRequest.setContent("Send your location");
+      locationRequest.setConversationId("location_request");
+
+      for (DFAgentDescription dfd : results) {
+        if (!dfd.getName().equals(this.getAID())) {
+          locationRequest.addReceiver(dfd.getName());
+        }
+      }
+
+      send(locationRequest);
+      addBehaviour(new HandleLocationResponses()); // Adding the behavior to handle responses
+    } catch (FIPAException fe) {
+      fe.printStackTrace();
+    }
+  }
+
+  private class HandleLocationResponses extends CyclicBehaviour {
+
+    public void action() {
+      // Define the template for receiving responses to location requests
+      MessageTemplate mt = MessageTemplate.and(
+        MessageTemplate.MatchPerformative(ACLMessage.INFORM),
+        MessageTemplate.MatchConversationId("location_request")
+      );
+
+      ACLMessage msg = myAgent.receive(mt);
+      if (msg != null) {
+        // Assuming location is sent as "x,y"
+        String[] coords = msg.getContent().split(",");
+        Point agentPosition = new Point(
+          Integer.parseInt(coords[0]),
+          Integer.parseInt(coords[1])
+        );
+        Point myPosition = getPosition(); // Method to get this agent's position
+
+        if (myPosition.distance(agentPosition) <= awarenessRange) {
+          System.out.println(
+            "Nearby citizen found: " + msg.getSender().getLocalName()
+          );
+          // You can store or process this information as needed
+        }
+      } else {
+        block(); // Correctly used within the action() method of a behavior
+      }
+    }
   }
 }
