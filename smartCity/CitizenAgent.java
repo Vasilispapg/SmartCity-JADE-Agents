@@ -41,6 +41,7 @@ public class CitizenAgent extends Agent {
   private double awarenessRange = 50.0;
 
   // Variables for finding nurses
+  private AID hospitalNearby;
   private AID nurseNearby;
   private boolean helpRequested = false;
 
@@ -104,14 +105,7 @@ public class CitizenAgent extends Agent {
       return;
     }
 
-    AgentRegistry.registerAgent(this);
-
-    agentSays(
-      "Citizen-agent " +
-      getAID().getLocalName() +
-      " is ready at position " +
-      position
-    );
+    AgentRegistry.registerAgent(this, getAID().getLocalName());
 
     // Ensure the agent is spawned on a road
     if (cityMap.getCell(position.x, position.y).contains("Road")) {
@@ -125,24 +119,13 @@ public class CitizenAgent extends Agent {
     dailyActivities = new DailyActivities(this, 1000);
     movementBehaviour = new MovementBehaviour(this, 1000);
 
-    addBehaviour(movementBehaviour);
+    // addBehaviour(movementBehaviour);
     addBehaviour(dailyActivities);
     addBehaviour(requestHelp);
+    addBehaviour(new WaitForHospitalResponse());
     addBehaviour(receiveHealingConfirmation);
     addLocationHandlingBehaviour();
-
     // IMPORT INTO THE NETWOK
-    try {
-      DFAgentDescription dfd = new DFAgentDescription();
-      dfd.setName(getAID());
-      ServiceDescription sd = new ServiceDescription();
-      sd.setType("citizen");
-      sd.setName(getLocalName());
-      dfd.addServices(sd);
-      DFService.register(this, dfd);
-    } catch (FIPAException fe) {
-      fe.printStackTrace();
-    }
   }
 
   protected class DailyActivities extends TickerBehaviour {
@@ -180,29 +163,57 @@ public class CitizenAgent extends Agent {
   // -----------------
   // FINDING THE NURSES OF THE AGENTS
   // -----------------
-  protected void findNurses() {
+  protected void findHospital() {
     DFAgentDescription template = new DFAgentDescription();
     ServiceDescription sd = new ServiceDescription();
-    sd.setType("nurse");
+    sd.setType("hospital"); // Change to hospital
     template.addServices(sd);
 
     try {
       DFAgentDescription[] results = DFService.search(this, template);
       if (results.length > 0) {
-        for (DFAgentDescription dfd : results) {
-          AID nurseAID = dfd.getName();
-          if (!nurseAID.equals(getAID())) { // Check if it's not the current agent
-            agentSays("Found nurse: " + nurseAID.getLocalName());
-            nurseNearby = nurseAID;
-            break;
-          }
-        }
-      }
-      if (nurseNearby == null) {
-        agentSays("Not avaliable nursers right now");
+        // Choose the first hospital found (or implement a better selection mechanism)
+        // TODO MAKE IT TO CHOOSE THE CLOSEST HOSPITAL
+        hospitalNearby = results[0].getName();
+        agentSays("Found hospital: " + hospitalNearby.getLocalName());
+      } else {
+        agentSays("No available hospitals right now");
+        hospitalNearby = null;
       }
     } catch (FIPAException fe) {
       fe.printStackTrace();
+    }
+  }
+
+  private class WaitForHospitalResponse extends CyclicBehaviour {
+
+    public void action() {
+      MessageTemplate mt = MessageTemplate.and(
+        MessageTemplate.MatchPerformative(ACLMessage.INFORM),
+        MessageTemplate.MatchSender(hospitalNearby)
+      );
+      ACLMessage msg = myAgent.receive(mt);
+      if (msg != null) {
+        String content = msg.getContent();
+        String conversationId = msg.getConversationId();
+        agentSays(
+          "Received message: " + content + " with ID: " + conversationId
+        );
+
+        if (content.contains("No nurses are available")) {
+          handleNoNursesAvailable(conversationId);
+        }
+      } else {
+        block();
+      }
+    }
+
+    private void handleNoNursesAvailable(String conversationId) {
+      agentSays(
+        "No nurses available, looking for another hospital for request ID: " +
+        conversationId
+      );
+      findHospital(); // Optionally modify to retry finding a hospital or handle differently
     }
   }
 
@@ -236,35 +247,42 @@ public class CitizenAgent extends Agent {
 
     public void action() {
       if (isInjured && !helpRequested) {
-        if (nurseNearby == null && retryCounter < maxRetries) {
-          findNurses();
+        agentSays("Requesting help from nearby hospitals.");
+
+        if (hospitalNearby == null && retryCounter < maxRetries) {
+          findHospital();
           retryCounter++;
         }
-        if (nurseNearby != null) {
-          sendHelpRequest();
+        if (hospitalNearby != null) {
+          sendHelpRequestToHospital();
           helpRequested = true; // Mark that help request is sent
         } else if (retryCounter >= maxRetries) {
-          agentSays("No nurse found after maximum retries.");
+          agentSays("No hospital found after maximum retries.");
           block(10000); // Stop retrying and wait for other events
           takeDown(); // Terminate the agent
         }
       }
     }
 
-    private void sendHelpRequest() {
+    private void sendHelpRequestToHospital() {
       ACLMessage helpRequest = new ACLMessage(ACLMessage.REQUEST);
-      helpRequest.addReceiver(nurseNearby);
+      helpRequest.addReceiver(hospitalNearby);
       helpRequest.setContent(
         "Need medical assistance at position: " + position.x + "," + position.y
       );
+      helpRequest.setConversationId(
+        "injury-report-" + System.currentTimeMillis()
+      ); // Unique ID for tracking
       send(helpRequest);
       agentSays(
         "Requesting help from " +
-        nurseNearby.getLocalName() +
+        hospitalNearby.getLocalName() +
         " at " +
         position.x +
         "," +
-        position.y
+        position.y +
+        ". Conversation ID: " +
+        helpRequest.getConversationId()
       );
     }
   }
@@ -392,7 +410,6 @@ public class CitizenAgent extends Agent {
                 transitionToMoveToBehaviour(destination);
               } else {
                 // I'm not on the road, so I'll go to the nearest road
-                agentSays("1");
                 Point nearestRoad = findNearestRoadOrSidewalk(position, false);
                 Point nearestSidewalk = findNearestRoadOrSidewalk(
                   nearestRoad,
@@ -415,7 +432,6 @@ public class CitizenAgent extends Agent {
             } else {
               // The destination is not a road, so I'll go to the nearest road and drive
               if (usingVehicle) {
-                agentSays("2");
                 Point nearestRoadToPark = findNearestRoadOrSidewalk(
                   destination,
                   false
@@ -428,7 +444,6 @@ public class CitizenAgent extends Agent {
                     );
                     usingVehicle = false;
                     inTraffic = false;
-                    agentSays("3");
                     Point nearestSidewalk = findNearestRoadOrSidewalk(
                       destination,
                       true
@@ -438,7 +453,6 @@ public class CitizenAgent extends Agent {
                   }
                 );
               } else {
-                agentSays("4");
                 usingVehicle = false;
                 inTraffic = false;
                 Point nearestRoad = findNearestRoadOrSidewalk(position, false);
@@ -470,7 +484,6 @@ public class CitizenAgent extends Agent {
                         );
                         usingVehicle = false;
                         inTraffic = false;
-                        agentSays("4a");
                         Point nearestSidewalk = findNearestRoadOrSidewalk(
                           nearestRoadToPark,
                           true
@@ -513,7 +526,6 @@ public class CitizenAgent extends Agent {
             }
           } else {
             // If it's near and I'm on the road I have to park
-            agentSays("5");
             Point nearestRoadToPark = findNearestRoadOrSidewalk(
               destination,
               false
@@ -528,7 +540,6 @@ public class CitizenAgent extends Agent {
                 agentSays("Reached the nearest Road. Now parking the vehicle.");
                 usingVehicle = false;
                 inTraffic = false;
-                agentSays("5a");
                 setPosition(nearestSidewalkToStep);
                 transitionToMoveToBehaviour(destination);
               }
@@ -914,12 +925,24 @@ public class CitizenAgent extends Agent {
   // GETTERS AND SETTERS
   // -----------------
 
-  public boolean isInjured() {
+  public boolean getIsInjured() {
     return isInjured;
   }
 
   public void setInjured(boolean isInjured) {
     this.isInjured = isInjured;
+  }
+
+  public AID getHospitalNearby() {
+    return hospitalNearby;
+  }
+
+  public void setHospitalNearby(AID hospitalNearby) {
+    this.hospitalNearby = hospitalNearby;
+  }
+
+  public boolean getHelpRequested() {
+    return helpRequested;
   }
 
   public boolean ownsCar() {
@@ -1118,61 +1141,5 @@ public class CitizenAgent extends Agent {
 
   protected void agentSays(String message) {
     System.out.println(getAID().getLocalName() + ": " + message);
-  }
-
-  private void initiateLocationRequests() {
-    DFAgentDescription template = new DFAgentDescription();
-    ServiceDescription sd = new ServiceDescription();
-    sd.setType("citizen");
-    template.addServices(sd);
-
-    try {
-      DFAgentDescription[] results = DFService.search(this, template);
-      ACLMessage locationRequest = new ACLMessage(ACLMessage.REQUEST);
-      locationRequest.setContent("Send your location");
-      locationRequest.setConversationId("location_request");
-
-      for (DFAgentDescription dfd : results) {
-        if (!dfd.getName().equals(this.getAID())) {
-          locationRequest.addReceiver(dfd.getName());
-        }
-      }
-
-      send(locationRequest);
-      addBehaviour(new HandleLocationResponses()); // Adding the behavior to handle responses
-    } catch (FIPAException fe) {
-      fe.printStackTrace();
-    }
-  }
-
-  private class HandleLocationResponses extends CyclicBehaviour {
-
-    public void action() {
-      // Define the template for receiving responses to location requests
-      MessageTemplate mt = MessageTemplate.and(
-        MessageTemplate.MatchPerformative(ACLMessage.INFORM),
-        MessageTemplate.MatchConversationId("location_request")
-      );
-
-      ACLMessage msg = myAgent.receive(mt);
-      if (msg != null) {
-        // Assuming location is sent as "x,y"
-        String[] coords = msg.getContent().split(",");
-        Point agentPosition = new Point(
-          Integer.parseInt(coords[0]),
-          Integer.parseInt(coords[1])
-        );
-        Point myPosition = getPosition(); // Method to get this agent's position
-
-        if (myPosition.distance(agentPosition) <= awarenessRange) {
-          System.out.println(
-            "Nearby citizen found: " + msg.getSender().getLocalName()
-          );
-          // You can store or process this information as needed
-        }
-      } else {
-        block(); // Correctly used within the action() method of a behavior
-      }
-    }
   }
 }
