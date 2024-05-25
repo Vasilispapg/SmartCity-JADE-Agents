@@ -5,6 +5,7 @@ import jade.core.ProfileImpl;
 import jade.core.Runtime;
 import jade.wrapper.AgentContainer;
 import jade.wrapper.AgentController;
+import jade.wrapper.StaleProxyException;
 import java.awt.Point;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,8 +13,6 @@ import java.util.concurrent.CountDownLatch;
 import javax.swing.SwingUtilities;
 
 public class Main {
-
-  private static List<CitizenAgent> agents = new ArrayList<>();
 
   public static void main(String[] args) {
     // 8 = 1 neighbor, 16 = 4 neighbors, 32 = 16 neighbors, etc.
@@ -23,7 +22,7 @@ public class Main {
       mapFrame.setVisible(true);
       StaticColors colorHandler = new StaticColors();
 
-      int totalAgents = 1; // Update this based on how many agents you are starting
+      int totalAgents = 5; // Update this based on how many agents you are starting
       CountDownLatch latch = new CountDownLatch(totalAgents);
 
       // Start JADE runtime and setup agents
@@ -36,15 +35,32 @@ public class Main {
         }
       } while (container == null);
 
+      // Start Sniffer Agent
+      AgentController sniffer;
       try {
-        int identifier = 0;
+        sniffer =
+          container.createNewAgent(
+            "sniffer",
+            "jade.tools.sniffer.Sniffer",
+            null
+          );
+        sniffer.start();
+      } catch (StaleProxyException e) {
+        System.err.println("MAIN SYSTEM: Error starting sniffer agent");
+        e.printStackTrace();
+      }
+
+      try {
+        int identifierC = 0;
+        int identifierH = 0;
+        int identifierN = 0;
         for (int i = 0; i < cityMap.size; i++) {
           for (int j = 0; j < cityMap.size; j++) {
-            if (cityMap.getCell(i, j).equals("House") && identifier < 2) {
+            if (cityMap.getCell(i, j).equals("House") && identifierC < 2) {
               generateAgents(
                 container,
                 "Citizen",
-                identifier++,
+                identifierC++,
                 cityMap,
                 mapFrame,
                 new Point(i, j),
@@ -53,12 +69,12 @@ public class Main {
               );
             }
             if (
-              identifier < 3 && cityMap.getCell(i, j).equals("PoliceStation")
+              identifierN < 2 && cityMap.getCell(i, j).equals("Police Station")
             ) {
               generateAgents(
                 container,
-                "PoliceAgent",
-                identifier++,
+                "NurseAgent",
+                identifierN++,
                 cityMap,
                 mapFrame,
                 new Point(i, j),
@@ -66,11 +82,11 @@ public class Main {
                 latch
               );
             }
-            if (identifier < 2 && cityMap.getCell(i, j).equals("Hospital")) {
+            if (identifierH == 0 && cityMap.getCell(i, j).equals("Hospital")) {
               generateAgents(
                 container,
-                "ThiefAgent",
-                identifier++,
+                "Hospital",
+                identifierH++,
                 cityMap,
                 mapFrame,
                 new Point(i, j),
@@ -123,7 +139,6 @@ public class Main {
         args
       );
       ac.start();
-      // TODO : H LISTA EINAI ADEIA TSEKARE AYTO ME TO AID POY TOYS KANEIS EGGRAFIS NA DOYME TI PAIZEI
     } catch (Exception e) {
       System.err.println(
         "MAIN SYSTEM: Exception starting agent: " + e.toString()
