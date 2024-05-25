@@ -1,5 +1,6 @@
 package examples.smartCity;
 
+import examples.smartCity.CitizenAgent.MovementBehaviour;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
@@ -17,6 +18,7 @@ public class NurseAgent extends CitizenAgent {
   private DFAgentDescription dfd = new DFAgentDescription();
   private ServiceDescription sd = new ServiceDescription();
   private boolean isBusy = false;
+  private AID injuredAID;
 
   protected void setup() {
     super.setup();
@@ -35,64 +37,86 @@ public class NurseAgent extends CitizenAgent {
         " km/h"
       );
     }
-
-    addBehaviour(new HandleRequests());
+    addBehaviour(new RequestTasksFromHospital(this, 1000)); // Check for tasks every 5 seconds
+    addBehaviour(new HandleTaskResponses());
     getLatch().countDown();
   }
 
-  private class HandleRequests extends CyclicBehaviour {
+  private class RequestTasksFromHospital extends TickerBehaviour {
 
-    public void action() {
-      try {
-        ACLMessage msg = myAgent.receive(
-          MessageTemplate.MatchPerformative(ACLMessage.REQUEST)
-        );
-        if (msg != null) {
-          if (!isBusy) {
-            isBusy = true;
-            agentSays(
-              "received a message from " + msg.getSender().getLocalName()
-            );
-            setDestination(null);
-            String content = msg.getContent();
-            Point targetPosition = parsePosition(content);
-            try {
-              if (DFService.search(myAgent, dfd) != null) DFService.deregister(
-                myAgent
-              ); // Nurse is busy
-            } catch (FIPAException e) {
-              e.printStackTrace();
-            }
-            addBehaviour(
-              new MoveToInjuredBehaviour(
-                myAgent,
-                targetPosition,
-                msg.getSender()
-              )
-            );
-          } else {
-            ACLMessage reply = msg.createReply();
-            reply.setPerformative(ACLMessage.REFUSE);
-            reply.setContent("I'm busy right now");
-            send(reply);
-            agentSays(
-              "I'm busy right now dear" + msg.getSender().getLocalName()
-            );
-          }
-        } else {
-          block();
-        }
-      } catch (Exception e) {
-        System.err.println("Exception in message handling: " + e.getMessage());
-        e.printStackTrace();
-      }
+    public RequestTasksFromHospital(Agent a, long period) {
+      super(a, period);
     }
 
-    private Point parsePosition(String content) {
-      String[] parts = content.split(": ")[1].split(",");
-      int x = Integer.parseInt(parts[0]);
-      int y = Integer.parseInt(parts[1]);
-      return new Point(x, y);
+    protected void onTick() {
+      if (isBusy) return;
+      if (null == getHospitalNearby()) {
+        findHospital();
+      }
+
+      if (null == getHospitalNearby()) return;
+
+      agentSays("Requesting task from " + getHospitalNearby().getLocalName());
+
+      ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
+      request.addReceiver(getHospitalNearby());
+      request.setContent("Requesting task");
+      request.setConversationId("task-request-" + System.currentTimeMillis());
+      send(request);
+    }
+  }
+
+  private class HandleTaskResponses extends CyclicBehaviour {
+
+    public void action() {
+      if (isBusy) return;
+      ACLMessage msg = myAgent.receive();
+      if (msg != null && msg.getPerformative() == ACLMessage.PROPOSE) {
+        System.out.println(
+          getLocalName() + " received a task proposal: " + msg.getContent()
+        );
+        ACLMessage response = msg.createReply();
+
+        if (!isBusy) {
+          setDestination(null);
+
+          response.setPerformative(ACLMessage.ACCEPT_PROPOSAL);
+          myAgent.send(response);
+          agentSays("I am accepting task");
+          isBusy = true;
+
+          injuredAID =
+            new AID(
+              msg.getContent().split("message")[0].split(":")[1].trim(),
+              true
+            );
+
+          // getting the injured agent's position
+          Citizen injuredAgent = (Citizen) AgentRegistry.getAgent(
+            injuredAID.getLocalName()
+          );
+
+          Point injuredPosition = injuredAgent.getPosition();
+
+          addBehaviour(
+            new MoveToInjuredBehaviour(myAgent, injuredPosition, injuredAID)
+          );
+        } else {
+          injuredAID =
+            new AID(
+              msg.getContent().split("message")[0].split(":")[1].trim(),
+              true
+            );
+          response.setPerformative(ACLMessage.REJECT_PROPOSAL);
+          response.setContent(
+            "I cannot accept the task to heal " + injuredAID.getLocalName()
+          );
+          myAgent.send(response);
+          agentSays("I am rejecting task");
+        }
+      } else {
+        block();
+      }
     }
   }
 
@@ -125,7 +149,9 @@ public class NurseAgent extends CitizenAgent {
       // add the new behavior to the agent
       agentSays(
         "Moving to " +
-        targetPosition +
+        targetPosition.x +
+        "," +
+        targetPosition.y +
         " to heal " +
         targetAgent.getLocalName() +
         "My destination is " +
@@ -164,7 +190,9 @@ public class NurseAgent extends CitizenAgent {
       // Reset busy state and re-enable normal movement behaviors
       isBusy = false;
       registerService();
-      // addBehaviour(new MovementBehaviour(myAgent, 1000));
+      setDestination(null);
+      setHospitalNearby(null);
+      addBehaviour(new MovementBehaviour(myAgent, 1000));
       agentSays("I'm available for service");
     }
   }
@@ -183,17 +211,26 @@ public class NurseAgent extends CitizenAgent {
   }
 
   private void registerService() {
-    dfd.setName(getAID());
     sd.setType("nurse");
     sd.setName("healthcare");
+    dfd.setName(getAID());
     dfd.addServices(sd);
+
     try {
-      DFService.register(this, dfd);
+      // Check if the agent is already registered
+      DFAgentDescription[] result = DFService.search(this, dfd);
+      if (result.length > 0) {
+        agentSays("Already registered.");
+      } else {
+        DFService.register(this, dfd);
+        agentSays("Registered as a Nurse Agent.");
+      }
     } catch (FIPAException fe) {
-      System.err.println("Failed to register service: " + fe.getMessage());
       fe.printStackTrace();
     }
-    agentSays("registered as a Nurse Agent.");
-    isBusy = false;
+  }
+
+  protected Boolean getIsBusy() {
+    return isBusy;
   }
 }
