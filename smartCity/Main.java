@@ -22,7 +22,7 @@ public class Main {
       mapFrame.setVisible(true);
       StaticColors colorHandler = new StaticColors();
 
-      int totalAgents = 5; // Update this based on how many agents you are starting
+      int totalAgents = 100; // Update this based on how many agents you are starting
       CountDownLatch latch = new CountDownLatch(totalAgents);
 
       // Start JADE runtime and setup agents
@@ -51,51 +51,123 @@ public class Main {
       }
 
       try {
-        int identifierC = 0;
-        int identifierH = 0;
-        int identifierN = 0;
-        for (int i = 0; i < cityMap.size; i++) {
-          for (int j = 0; j < cityMap.size; j++) {
-            if (cityMap.getCell(i, j).equals("House") && identifierC < 2) {
-              generateAgents(
-                container,
-                "Citizen",
-                identifierC++,
-                cityMap,
-                mapFrame,
-                new Point(i, j),
-                colorHandler,
-                latch
-              );
-            }
-            if (
-              identifierN < 2 && cityMap.getCell(i, j).equals("Police Station")
-            ) {
-              generateAgents(
-                container,
-                "NurseAgent",
-                identifierN++,
-                cityMap,
-                mapFrame,
-                new Point(i, j),
-                colorHandler,
-                latch
-              );
-            }
-            if (identifierH == 0 && cityMap.getCell(i, j).equals("Hospital")) {
-              generateAgents(
-                container,
-                "Hospital",
-                identifierH++,
-                cityMap,
-                mapFrame,
-                new Point(i, j),
-                colorHandler,
-                latch
-              );
+        int identifierCitizen = 0;
+        int identifierHospital = 0;
+        int identifierNurse = 0;
+        int identifierPoliceStation = 0;
+        int identifierPoliceAgent = 0;
+        int identifierThiefAgent = 0;
+        do {
+          for (int i = 0; i < cityMap.size; i++) {
+            for (int j = 0; j < cityMap.size; j++) {
+              identifierCitizen =
+                generateAgentsModa(
+                  "Citizen",
+                  "House",
+                  identifierCitizen,
+                  cityMap,
+                  mapFrame,
+                  colorHandler,
+                  latch,
+                  container,
+                  i,
+                  j
+                );
+              if (
+                cityMap.getNumOf("Hospital") >= identifierHospital + 1
+              ) identifierHospital =
+                generateAgentsModa(
+                  "Hospital",
+                  "Hospital",
+                  identifierHospital,
+                  cityMap,
+                  mapFrame,
+                  colorHandler,
+                  latch,
+                  container,
+                  i,
+                  j
+                );
+              identifierNurse =
+                generateAgentsModa(
+                  "NurseAgent",
+                  "Hospital",
+                  identifierNurse,
+                  cityMap,
+                  mapFrame,
+                  colorHandler,
+                  latch,
+                  container,
+                  i,
+                  j
+                );
+
+              if (
+                cityMap.getNumOf("PoliceStation") >= identifierPoliceStation + 1
+              ) identifierPoliceStation =
+                generateAgentsModa(
+                  "PoliceStation",
+                  "PoliceStation",
+                  identifierPoliceStation,
+                  cityMap,
+                  mapFrame,
+                  colorHandler,
+                  latch,
+                  container,
+                  i,
+                  j
+                );
+              identifierPoliceAgent =
+                generateAgentsModa(
+                  "PoliceAgent",
+                  "PoliceStation",
+                  identifierPoliceAgent,
+                  cityMap,
+                  mapFrame,
+                  colorHandler,
+                  latch,
+                  container,
+                  i,
+                  j
+                );
+              identifierThiefAgent =
+                generateAgentsModa(
+                  "ThiefAgent",
+                  "House",
+                  identifierThiefAgent,
+                  cityMap,
+                  mapFrame,
+                  colorHandler,
+                  latch,
+                  container,
+                  i,
+                  j
+                );
+              if (
+                totalAgents <=
+                (
+                  identifierCitizen +
+                  identifierHospital +
+                  identifierNurse +
+                  identifierPoliceStation +
+                  identifierPoliceAgent +
+                  identifierThiefAgent
+                )
+              ) {
+                break;
+              }
             }
           }
-        }
+        } while (
+          identifierCitizen +
+          identifierHospital +
+          identifierNurse +
+          identifierPoliceStation +
+          identifierPoliceAgent +
+          identifierThiefAgent <
+          totalAgents
+        );
+
         // Wait for all agents to initialize
         latch.await();
         System.out.println("MAIN SYSTEM: All agents have been initialized.");
@@ -103,6 +175,34 @@ public class Main {
         e.printStackTrace();
       }
     });
+  }
+
+  private static int generateAgentsModa(
+    String type,
+    String typeOfDisplay,
+    int identifier,
+    CityMap cityMap,
+    MapFrame mapFrame,
+    StaticColors colorHandler,
+    CountDownLatch latch,
+    AgentContainer container,
+    int i,
+    int j
+  ) {
+    if (cityMap.getCell(i, j).equals(typeOfDisplay)) {
+      generateAgents(
+        container,
+        type,
+        identifier,
+        cityMap,
+        mapFrame,
+        new Point(i, j),
+        colorHandler,
+        latch
+      );
+      return identifier + 1;
+    }
+    return identifier;
   }
 
   private static AgentContainer generateMainContainer(Profile profile) {

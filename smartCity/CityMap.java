@@ -137,6 +137,18 @@ public class CityMap {
     }
   }
 
+  public int getNumOf(String type) {
+    int count = 0;
+    for (int i = 0; i < size; i++) {
+      for (int j = 0; j < size; j++) {
+        if (grid[i][j].equals(type)) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
   public String getCell(int x, int y) {
     return grid[y][x]; // Corrected x and y
   }
