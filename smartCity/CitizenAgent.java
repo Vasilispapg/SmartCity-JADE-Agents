@@ -30,15 +30,21 @@ public class CitizenAgent extends Agent {
   // Variables for the citizen
   private boolean isInjured = false;
   private boolean ownsCar;
+  private Point home;
   private Vehicle vehicle;
   private Point position;
   private MapFrame mapFrame;
   private CityMap cityMap;
   private Color color;
   private Boolean inAction = false;
-  private double balance = 1000.0;
+  private double balance = 1000;
   private double previousBalance = balance;
   private double awarenessRange = 50.0;
+
+  private Object[] args;
+
+  // Variables for the citizen's state
+  private Boolean isHome = true;
 
   // Variables for finding nurses
   private AID hospitalNearby;
@@ -53,6 +59,7 @@ public class CitizenAgent extends Agent {
   private Point destination;
   private boolean usingVehicle;
   private boolean inTraffic;
+  private boolean moveToBehaviourActive = false;
 
   // Pathfinding and movement variables
   private LinkedList<Point> path = new LinkedList<>();
@@ -78,6 +85,7 @@ public class CitizenAgent extends Agent {
 
   protected void setup() {
     Object[] args = getArguments();
+    this.args = args;
     System.out.println(
       "Hello! Citizen-agent " + getAID().getName() + " is ready."
     );
@@ -106,7 +114,7 @@ public class CitizenAgent extends Agent {
     }
 
     AgentRegistry.registerAgent(this, getAID().getLocalName());
-
+    setHome(position);
     // Ensure the agent is spawned on a road
     if (cityMap.getCell(position.x, position.y).contains("Road")) {
       spawnVehicle(position);
@@ -116,16 +124,28 @@ public class CitizenAgent extends Agent {
 
     mapFrame.updatePosition(getAID().getLocalName(), position, color);
 
-    dailyActivities = new DailyActivities(this, 1000);
-    movementBehaviour = new MovementBehaviour(this, 1000);
+    dailyActivities =
+      new DailyActivities(this, (int) (Math.random() * 700 + 1200));
+    movementBehaviour =
+      new MovementBehaviour(this, (int) (Math.random() * 700 + 1200));
 
-    // addBehaviour(movementBehaviour);
+    addBehaviour(movementBehaviour);
     addBehaviour(dailyActivities);
     addBehaviour(requestHelp);
     addBehaviour(new WaitForHospitalResponse());
     addBehaviour(receiveHealingConfirmation);
     addLocationHandlingBehaviour();
-    // IMPORT INTO THE NETWOK
+
+    // Add the agent behavior to check if the agent is home
+    addBehaviour(
+      new TickerBehaviour(this, (int) (Math.random() * 700 + 1200)) {
+        protected void onTick() {
+          if (getPosition() == getHome() && !isHome) {
+            isHome = true;
+          }
+        }
+      }
+    );
   }
 
   protected class DailyActivities extends TickerBehaviour {
@@ -196,9 +216,7 @@ public class CitizenAgent extends Agent {
       if (msg != null) {
         String content = msg.getContent();
         String conversationId = msg.getConversationId();
-        agentSays(
-          "Received message: " + content + " with ID: " + conversationId
-        );
+        agentSays("Received message: " + content);
 
         if (content.contains("No nurses are available")) {
           handleNoNursesAvailable(conversationId);
@@ -323,7 +341,7 @@ public class CitizenAgent extends Agent {
           position.setLocation(nextStep);
           mapFrame.updatePosition(getAID().getLocalName(), position, color);
           setPosition(nextStep);
-          agentSays("Moved to " + nextStep);
+          // agentSays("Moved to " + nextStep);
 
           // Check if we need to switch to walking
           if (
@@ -340,16 +358,16 @@ public class CitizenAgent extends Agent {
           ) {
             usingVehicle = false;
             inTraffic = false;
-            agentSays("Switching to walking.");
+            // agentSays("Switching to walking.");
           }
         } else {
-          agentSays("Recalculating path due to an obstacle at " + nextStep);
+          // agentSays("Recalculating path due to an obstacle at " + nextStep);
           path = calculatePath(position, target); // Recalculate if blocked
         }
       } else {
-        agentSays("Target " + target + ".");
-        agentSays("Position " + position + ".");
-        agentSays("Reached the end of the path.");
+        // agentSays("Target " + target + ".");
+        // agentSays("Position " + position + ".");
+        // agentSays("Reached the end of the path.");
         stop();
         if (onComplete != null) {
           onComplete.run();
@@ -360,8 +378,6 @@ public class CitizenAgent extends Agent {
   }
 
   protected class MovementBehaviour extends TickerBehaviour {
-
-    private boolean moveToBehaviourActive = false;
 
     public MovementBehaviour(Agent a, long period) {
       super(a, period);
@@ -375,7 +391,7 @@ public class CitizenAgent extends Agent {
         if (destinationReached || position.equals(destination)) {
           agentSays("Destination reached at " + position);
           if (usingVehicle) {
-            agentSays("Parking the vehicle at " + position);
+            // agentSays("Parking the vehicle at " + position);
             cityMap.clearVehiclePosition(position);
             usingVehicle = false;
             inTraffic = false;
@@ -386,7 +402,7 @@ public class CitizenAgent extends Agent {
         }
 
         if (destination == null) findDestination();
-        agentSays("Moving from " + position + " to " + destination);
+        // agentSays("Moving from " + position + " to " + destination);
 
         String typeOfDestination = cityMap.getCell(
           destination.x,
@@ -394,7 +410,7 @@ public class CitizenAgent extends Agent {
         );
 
         if (typeOfDestination.contains("Road") && !ownsCar) {
-          agentSays("I don't have a car so I can't go to the road");
+          // agentSays("I don't have a car so I can't go to the road");
           clearDestination();
           return;
         }
@@ -418,9 +434,9 @@ public class CitizenAgent extends Agent {
                 transitionToMoveToBehaviour(
                   nearestSidewalk,
                   () -> {
-                    agentSays(
-                      "Reached the vehicle. Now driving to the destination."
-                    );
+                    // agentSays(
+                    // "Reached the vehicle. Now driving to the destination."
+                    // );
                     usingVehicle = true;
                     inTraffic = true;
                     spawnVehicle(nearestRoad);
@@ -439,9 +455,9 @@ public class CitizenAgent extends Agent {
                 transitionToMoveToBehaviour(
                   nearestRoadToPark,
                   () -> {
-                    agentSays(
-                      "Reached the nearest Road. Now parking the vehicle."
-                    );
+                    // agentSays(
+                    // "Reached the nearest Road. Now parking the vehicle."
+                    // );
                     usingVehicle = false;
                     inTraffic = false;
                     Point nearestSidewalk = findNearestRoadOrSidewalk(
@@ -463,9 +479,9 @@ public class CitizenAgent extends Agent {
                 transitionToMoveToBehaviour(
                   nearestSidewalkToRoad,
                   () -> {
-                    agentSays(
-                      "Reached the nearest Road. Now driving to the destination."
-                    );
+                    // agentSays(
+                    //   "Reached the nearest Road. Now driving to the destination."
+                    // );
                     usingVehicle = true;
                     inTraffic = true;
                     spawnVehicle(nearestRoad);
@@ -479,9 +495,9 @@ public class CitizenAgent extends Agent {
                     transitionToMoveToBehaviour(
                       nearestRoadToPark,
                       () -> {
-                        agentSays(
-                          "Reached the nearest Road. Now parking the vehicle."
-                        );
+                        // agentSays(
+                        //   "Reached the nearest Road. Now parking the vehicle."
+                        // );
                         usingVehicle = false;
                         inTraffic = false;
                         Point nearestSidewalk = findNearestRoadOrSidewalk(
@@ -537,7 +553,7 @@ public class CitizenAgent extends Agent {
             transitionToMoveToBehaviour(
               nearestRoadToPark,
               () -> {
-                agentSays("Reached the nearest Road. Now parking the vehicle.");
+                // agentSays("Reached the nearest Road. Now parking the vehicle.");
                 usingVehicle = false;
                 inTraffic = false;
                 setPosition(nearestSidewalkToStep);
@@ -571,7 +587,7 @@ public class CitizenAgent extends Agent {
           addBehaviour(
             new MoveToBehaviour(
               CitizenAgent.this,
-              1000,
+              (int) (Math.random() * 700 + 1200),
               target,
               onComplete,
               this
@@ -617,22 +633,9 @@ public class CitizenAgent extends Agent {
     cityMap.setVehiclePosition(pos);
   }
 
-  @SuppressWarnings("unused")
-  private void findDestination(String type) {
-    Point dest;
-    do {
-      int x = new Random().nextInt(cityMap.size);
-      int y = new Random().nextInt(cityMap.size);
-      dest = new Point(x, y);
-    } while (!cityMap.getCell(dest.x, dest.y).contains(type));
-
-    destination = dest;
-    agentSays(type + " destination set to " + destination);
-  }
-
   protected void findDestination() {
     if (destination != null) {
-      agentSays("Destination already set to " + destination);
+      // agentSays("Destination already set to " + destination);
       return;
     }
     Point dest;
@@ -660,17 +663,24 @@ public class CitizenAgent extends Agent {
 
     while (!queue.isEmpty()) {
       Point current = queue.poll();
+      if (current == null) {
+        return null;
+      }
+      if (!cityMap.withinBounds(current)) {
+        agentSays("Out of bounds at " + current);
+        continue;
+      }
       String cellType = cityMap.getCell(current.x, current.y);
 
       if (cellType.contains("Road") && !needsSidewalk) {
-        agentSays("Nearest road found at " + current);
+        // agentSays("Nearest road found at " + current);
         return current; // Found the nearest road
       }
 
       if (
         "Sidewalk".equals(cellType) && needsSidewalk && hasRoadNeighbor(current)
       ) {
-        agentSays("Nearest sidewalk next to road found at " + current);
+        // agentSays("Nearest sidewalk next to road found at " + current);
         return current; // Found the nearest sidewalk adjacent to a road
       }
 
@@ -694,7 +704,7 @@ public class CitizenAgent extends Agent {
     return false;
   }
 
-  private LinkedList<Point> calculatePath(Point start, Point end) {
+  protected LinkedList<Point> calculatePath(Point start, Point end) {
     Map<Point, Node> openList = new HashMap<>();
     Set<Point> closedList = new HashSet<>();
     Map<Point, Point> cameFrom = new HashMap<>();
@@ -702,7 +712,7 @@ public class CitizenAgent extends Agent {
     PriorityQueue<Node> priorityQueue = new PriorityQueue<>(
       Comparator.comparingInt(n -> n.f)
     );
-    agentSays("Calculating path from " + start + " to " + end);
+    // agentSays("Calculating path from " + start + " to " + end);
     Node startNode = new Node(start, 0, manhattanDistance(start, end));
 
     openList.put(start, startNode);
@@ -797,9 +807,9 @@ public class CitizenAgent extends Agent {
     if (currentPosition.equals(nextPosition)) return true;
 
     if (!cityMap.withinBounds(nextPosition)) {
-      agentSays(
-        "Move to " + nextPosition + " is out of bounds or not traversable."
-      );
+      // agentSays(
+      //   "Move to " + nextPosition + " is out of bounds or not traversable."
+      // );
       return false;
     }
 
@@ -1133,6 +1143,34 @@ public class CitizenAgent extends Agent {
 
   public void setAwarenessRange(double awarenessRange) {
     this.awarenessRange = awarenessRange;
+  }
+
+  public boolean getMoveToBehaviourActive() {
+    return moveToBehaviourActive;
+  }
+
+  public void setMoveToBehaviourActive(boolean moveToBehaviourActive) {
+    this.moveToBehaviourActive = moveToBehaviourActive;
+  }
+
+  public void setHome(Point home) {
+    this.home = home;
+  }
+
+  public Point getHome() {
+    return home;
+  }
+
+  public Boolean getIsHome() {
+    return isHome;
+  }
+
+  public void setIsHome(Boolean isHome) {
+    this.isHome = isHome;
+  }
+
+  public Object[] getArgs() {
+    return args;
   }
 
   // -----------------
