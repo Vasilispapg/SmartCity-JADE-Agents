@@ -37,7 +37,9 @@ public class NurseAgent extends CitizenAgent {
         " km/h"
       );
     }
-    addBehaviour(new RequestTasksFromHospital(this, 1000)); // Check for tasks every 5 seconds
+    addBehaviour(
+      new RequestTasksFromHospital(this, (int) (Math.random() * 700 + 4500))
+    ); // Check for tasks every 5 seconds
     addBehaviour(new HandleTaskResponses());
     getLatch().countDown();
   }
@@ -192,7 +194,9 @@ public class NurseAgent extends CitizenAgent {
       registerService();
       setDestination(null);
       setHospitalNearby(null);
-      addBehaviour(new MovementBehaviour(myAgent, 1000));
+      addBehaviour(
+        new MovementBehaviour(myAgent, (int) (Math.random() * 700 + 1200))
+      );
       agentSays("I'm available for service");
     }
   }

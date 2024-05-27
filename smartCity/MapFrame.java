@@ -154,12 +154,11 @@ public class MapFrame extends JFrame {
     for (int i = 0; i < cityMap.size; i++) {
       for (int j = 0; j < cityMap.size; j++) {
         drawTile(g, i, j, startY);
-
         // Draw coordinates
-        g.setColor(Color.BLACK);
+        // g.setColor(Color.BLACK);
         // reduce the font size to fit the coordinates
-        g.setFont(new Font("Arial", Font.PLAIN, 10));
-        g.drawString(j + "," + i, j * tileSize + 5, i * tileSize + startY + 15);
+        // g.setFont(new Font("Arial", Font.PLAIN, 10));
+        // g.drawString(j + "," + i, j * tileSize + 5, i * tileSize + startY + 15);
       }
     }
     drawPath(g); // Draw the path

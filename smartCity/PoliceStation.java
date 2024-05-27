@@ -62,6 +62,8 @@ public class PoliceStation extends Agent {
 
       mapFrame.updatePosition(getAID().getLocalName(), position, color);
 
+      AgentRegistry.registerAgent(this, getAID().getLocalName());
+
       // Register the PoliceStation in the DF
       registerPoliceStationInDF();
       // Add the cased report listener
@@ -97,6 +99,10 @@ public class PoliceStation extends Agent {
     } catch (FIPAException fe) {
       fe.printStackTrace();
     }
+  }
+
+  public Point getPosition() {
+    return position;
   }
 
   private class casedReportListener extends CyclicBehaviour {
@@ -200,8 +206,6 @@ public class PoliceStation extends Agent {
         )
       );
       if (response != null) {
-        agentSays("---------------------------------------");
-
         switch (response.getPerformative()) {
           case ACLMessage.ACCEPT_PROPOSAL:
             agentSays(

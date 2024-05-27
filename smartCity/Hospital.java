@@ -86,6 +86,8 @@ public class Hospital extends Agent {
   }
 
   private void registerHospitalInDF() {
+    AgentRegistry.registerAgent(this, getAID().getLocalName());
+
     DFAgentDescription dfd = new DFAgentDescription();
     dfd.setName(getAID());
     ServiceDescription sd = new ServiceDescription();
@@ -200,18 +202,15 @@ public class Hospital extends Agent {
         )
       );
       if (response != null) {
-        agentSays("---------------------------------------");
-
         switch (response.getPerformative()) {
           case ACLMessage.ACCEPT_PROPOSAL:
             agentSays(
-              response.getSender().getLocalName() +
-              " accepted the task. Task: " +
-              response.getContent()
+              response.getSender().getLocalName() + " accepted the task."
             );
             activeTasks.put(response.getSender(), response.getContent());
             taskQueueTrack.remove(response);
             senderTrack.remove(response);
+            activeTasks.put(response.getSender(), response.getContent());
 
             break;
           case ACLMessage.REJECT_PROPOSAL:
@@ -235,7 +234,7 @@ public class Hospital extends Agent {
             // Add the task back to the queue
             break;
         }
-        activeTasks.remove(response.getSender());
+        // activeTasks.remove(response.getSender());
       } else {
         block();
       }
