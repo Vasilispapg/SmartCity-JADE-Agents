@@ -1,33 +1,103 @@
 package examples.smartCity;
 
 import jade.core.AID;
+import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
+import jade.core.behaviours.TickerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPAException;
 import jade.domain.FIPANames;
 import jade.lang.acl.ACLMessage;
+import jade.lang.acl.MessageTemplate;
 import java.awt.Point;
 import java.util.ArrayList;
 import java.util.List;
 
 public class ThiefAgent extends CitizenAgent {
 
-  private double stealProbability = Math.random() * 0.4; // Random probability between 0 and 0.4
+  private double stealProbability = Math.random() * 0.4 + 0.1; // Random probability between 0.1 and 0.5
+  private double power = Math.random() * 0.7 + 0.1; // Random power between 0.1 and 0.8
   private double stealRange = 2.0;
 
   protected void setup() {
     super.setup();
     agentSays("I am a Thief Agent. I am ready to steal.");
     addBehaviour(new StealMoneyBehaviour());
-    addBehaviour(new LocateNearbyCitizens());
+    addBehaviour(
+      new LocateNearbyCitizens(this, (int) (Math.random() * 700 + 4000))
+    );
+    addBehaviour(new hearingCopVoices());
+    registerAsThief();
+    addBehaviour(
+      new iAmHomeBehaviour(this, (int) (Math.random() * 700 + 5000))
+    );
+    getLatch().countDown();
+  }
+
+  public class iAmHomeBehaviour extends TickerBehaviour {
+
+    public iAmHomeBehaviour(Agent a, long period) {
+      super(a, period);
+    }
+
+    public void onTick() {
+      if (getPosition().equals(getHome())) {
+        setIsHome(true);
+      }
+    }
+  }
+
+  private class hearingCopVoices extends CyclicBehaviour {
+
+    public void action() {
+      MessageTemplate mtPrefix = new MessageTemplate(
+        new MessageTemplate.MatchExpression() {
+          @Override
+          public boolean match(ACLMessage message) {
+            String conversationId = message.getConversationId();
+            return (
+              conversationId != null &&
+              conversationId.startsWith("catch-thief-")
+            );
+          }
+        }
+      );
+      MessageTemplate mt = MessageTemplate.and(
+        MessageTemplate.MatchPerformative(ACLMessage.INFORM),
+        mtPrefix
+      );
+      ACLMessage msg = myAgent.receive(mt);
+      if (msg != null) {
+        PoliceAgent cop = (PoliceAgent) AgentRegistry.getAgent(
+          msg.getSender().getLocalName()
+        );
+        Point copPosition = cop.getPosition();
+        Point myPosition = getPosition();
+        if (
+          myPosition.distance(copPosition) <= 3 && Math.random() * 0.6 > power
+        ) {
+          agentSays("I was caught by " + cop.getLocalName());
+          takeDown();
+        } else {
+          // Move away from the cop
+          setDestination(getHome());
+        }
+      } else {
+        block();
+      }
+    }
   }
 
   // Behaviour to periodically locate nearby citizens
-  private class LocateNearbyCitizens extends CyclicBehaviour {
+  private class LocateNearbyCitizens extends TickerBehaviour {
 
-    public void action() {
+    public LocateNearbyCitizens(Agent a, long period) {
+      super(a, period); // Repeat every 2 seconds
+    }
+
+    public void onTick() {
       DFAgentDescription template = new DFAgentDescription();
       ServiceDescription sd = new ServiceDescription();
       sd.setType("citizen");
@@ -43,7 +113,6 @@ public class ThiefAgent extends CitizenAgent {
       } catch (FIPAException fe) {
         fe.printStackTrace();
       }
-      block(1000); // Repeat every 2 seconds
     }
 
     private void requestLocation(AID citizen) {
@@ -52,6 +121,20 @@ public class ThiefAgent extends CitizenAgent {
       req.setContent("Requesting location");
       req.setProtocol(FIPANames.InteractionProtocol.FIPA_REQUEST);
       myAgent.send(req);
+    }
+  }
+
+  private void registerAsThief() {
+    try {
+      DFAgentDescription dfd = new DFAgentDescription();
+      dfd.setName(getAID());
+      ServiceDescription sd = new ServiceDescription();
+      sd.setType("thief");
+      sd.setName(getLocalName());
+      dfd.addServices(sd);
+      DFService.register(this, dfd);
+    } catch (FIPAException fe) {
+      fe.printStackTrace();
     }
   }
 
@@ -64,20 +147,6 @@ public class ThiefAgent extends CitizenAgent {
       if (msg != null && msg.getPerformative() == ACLMessage.INFORM) {
         Point otherPosition = parsePosition(msg.getContent());
         Point myPosition = getPosition();
-        agentSays(
-          "Received location from " +
-          msg.getSender().getLocalName() +
-          ": " +
-          myPosition.distance(otherPosition)
-        );
-        myPosition = getPosition();
-        agentSays(
-          "My position: " +
-          myPosition.toString() +
-          " " +
-          "Other position: " +
-          otherPosition.toString()
-        );
         if (myPosition.distance(otherPosition) <= stealRange) {
           nearbyCitizens.add(msg.getSender());
         }
@@ -85,23 +154,20 @@ public class ThiefAgent extends CitizenAgent {
 
       if (Math.random() < stealProbability && !nearbyCitizens.isEmpty()) {
         // Randomly pick one nearby citizen to attempt to steal from
-        AID target = nearbyCitizens.get(
-          (int) (Math.random() * nearbyCitizens.size())
-        );
+        int index = (int) (Math.random() * nearbyCitizens.size());
+        AID target = nearbyCitizens.get(index);
+        nearbyCitizens.remove(index);
+
         double stolenAmount = steal(target);
         if (stolenAmount > 0) {
-          System.out.println(
-            getAID().getLocalName() +
-            " stole $" +
-            stolenAmount +
-            " from " +
-            target.getLocalName()
+          agentSays(
+            " stole $" + stolenAmount + " from " + target.getLocalName()
           );
           // Assuming there's a method to update balances
           updateBalances(target, stolenAmount);
         }
       }
-      block(10000); // Check for messages and possibly steal every 5 seconds
+      block(); // Wait for new messages
     }
 
     private void updateBalances(AID target, double stolenAmount) {
