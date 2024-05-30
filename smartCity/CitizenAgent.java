@@ -126,8 +126,7 @@ public class CitizenAgent extends Agent {
 
     dailyActivities =
       new DailyActivities(this, (int) (Math.random() * 700 + 1200));
-    movementBehaviour =
-      new MovementBehaviour(this, (int) (Math.random() * 700 + 1200));
+    movementBehaviour = new MovementBehaviour(this, 1000);
 
     addBehaviour(movementBehaviour);
     addBehaviour(dailyActivities);
@@ -156,7 +155,7 @@ public class CitizenAgent extends Agent {
 
     public void onTick() {
       double chance = Math.random();
-      if (chance < 0.0005 && !(myAgent instanceof NurseAgent) && !isInjured) {
+      if (chance < 0.05 && !(myAgent instanceof NurseAgent) && !isInjured) {
         isInjured = true;
         agentSays("I am injured");
       }
@@ -238,8 +237,25 @@ public class CitizenAgent extends Agent {
   private class ReceiveHealingConfirmation extends CyclicBehaviour {
 
     public void action() {
-      MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.INFORM);
-      ACLMessage msg = myAgent.receive(mt);
+      MessageTemplate mtPrefix = new MessageTemplate(
+        new MessageTemplate.MatchExpression() {
+          @Override
+          public boolean match(ACLMessage message) {
+            String conversationId = message.getConversationId();
+            return (
+              conversationId != null &&
+              conversationId.startsWith("heal-confirm-")
+            );
+          }
+        }
+      );
+
+      // Combine the custom template with the MatchPerformative template
+      MessageTemplate mt = MessageTemplate.and(
+        mtPrefix,
+        MessageTemplate.MatchPerformative(ACLMessage.INFORM)
+      );
+      ACLMessage msg = receive(mt);
       if (msg != null) {
         String content = msg.getContent();
         if (content.contains("Healed at")) {
@@ -587,7 +603,7 @@ public class CitizenAgent extends Agent {
           addBehaviour(
             new MoveToBehaviour(
               CitizenAgent.this,
-              (int) (Math.random() * 700 + 1200),
+              1000,
               target,
               onComplete,
               this

@@ -46,7 +46,7 @@ public class PoliceAgent extends CitizenAgent {
   }
 
   private void registerService() {
-    sd.setType("police");
+    sd.setType("policeagent");
     sd.setName(getLocalName());
     dfd.setName(getAID());
     dfd.addServices(sd);
@@ -373,7 +373,7 @@ public class PoliceAgent extends CitizenAgent {
             // if spotted thief, kill thief
             DFAgentDescription thiefTemplate = new DFAgentDescription();
             ServiceDescription thiefSD = new ServiceDescription();
-            thiefSD.setType("thief");
+            thiefSD.setType("thiefagent");
             thiefTemplate.addServices(thiefSD);
 
             try {

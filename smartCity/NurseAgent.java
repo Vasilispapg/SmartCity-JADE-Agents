@@ -94,7 +94,7 @@ public class NurseAgent extends CitizenAgent {
             );
 
           // getting the injured agent's position
-          Citizen injuredAgent = (Citizen) AgentRegistry.getAgent(
+          CitizenAgent injuredAgent = (CitizenAgent) AgentRegistry.getAgent(
             injuredAID.getLocalName()
           );
 
@@ -173,16 +173,66 @@ public class NurseAgent extends CitizenAgent {
       }
     }
 
+    private AID findClosestCitizen(DFAgentDescription[] results) {
+      double minDistance = 25;
+      AID closestCitizen = null;
+      for (DFAgentDescription dfd : results) {
+        AID citizen = dfd.getName();
+        double distance = getPosition()
+          .distance(
+            ((CitizenAgent) AgentRegistry.getAgent(citizen)).getPosition()
+          );
+        // agentSays(
+        //   "Distance to police station " +
+        //   citizen.getLocalName() +
+        //   " is " +
+        //   distance +
+        //   " from " +
+        //   (distance < minDistance)
+        // );
+        if (distance < minDistance) {
+          // agentSays("Setting closest citizen to " + citizen.getLocalName());
+          minDistance = distance;
+          closestCitizen = citizen;
+        }
+      }
+      return closestCitizen;
+    }
+
     private void performHealing() {
       // Healing logic here
       agentSays(
         "Healing " + targetAgent.getLocalName() + " at " + getPosition()
       );
+
+      String type = targetAgent
+        .getLocalName()
+        .split("@")[0].trim()
+        .replaceAll("[0-9]", "")
+        .toLowerCase();
+
+      dfd = new DFAgentDescription();
+      sd = new ServiceDescription();
+      sd.setType(type);
+      dfd.addServices(sd);
+      DFAgentDescription[] results = null;
+
+      try {
+        results = DFService.search(myAgent, dfd);
+        targetAgent = findClosestCitizen(results);
+      } catch (FIPAException e) {
+        e.printStackTrace();
+      }
+
       // Send healing confirmation to the injured agent
       ACLMessage healConfirm = new ACLMessage(ACLMessage.INFORM);
       healConfirm.addReceiver(targetAgent);
+      healConfirm.setConversationId(
+        "heal-confirm-" + System.currentTimeMillis()
+      );
       healConfirm.setContent("Healed at " + getPosition());
       send(healConfirm);
+      agentSays(healConfirm + "");
 
       // Post-healing routines or cleanup
       backToWork();
@@ -215,7 +265,7 @@ public class NurseAgent extends CitizenAgent {
   }
 
   private void registerService() {
-    sd.setType("nurse");
+    sd.setType("nurseagent");
     sd.setName("healthcare");
     dfd.setName(getAID());
     dfd.addServices(sd);

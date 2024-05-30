@@ -22,7 +22,7 @@ public class Main {
       mapFrame.setVisible(true);
       StaticColors colorHandler = new StaticColors();
 
-      int totalAgents = 100; // Update this based on how many agents you are starting
+      int totalAgents = 15; // Update this based on how many agents you are starting
       CountDownLatch latch = new CountDownLatch(totalAgents);
 
       // Start JADE runtime and setup agents

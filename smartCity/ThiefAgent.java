@@ -81,6 +81,10 @@ public class ThiefAgent extends CitizenAgent {
           agentSays("I was caught by " + cop.getLocalName());
           takeDown();
         } else {
+          if (getIsInjured()) {
+            agentSays("I was caught by " + cop.getLocalName());
+            takeDown();
+          }
           // Move away from the cop
           setDestination(getHome());
         }
@@ -98,6 +102,9 @@ public class ThiefAgent extends CitizenAgent {
     }
 
     public void onTick() {
+      if (getIsInjured()) {
+        return;
+      }
       DFAgentDescription template = new DFAgentDescription();
       ServiceDescription sd = new ServiceDescription();
       sd.setType("citizen");
@@ -129,7 +136,7 @@ public class ThiefAgent extends CitizenAgent {
       DFAgentDescription dfd = new DFAgentDescription();
       dfd.setName(getAID());
       ServiceDescription sd = new ServiceDescription();
-      sd.setType("thief");
+      sd.setType("thiefagent");
       sd.setName(getLocalName());
       dfd.addServices(sd);
       DFService.register(this, dfd);
@@ -143,6 +150,9 @@ public class ThiefAgent extends CitizenAgent {
     private List<AID> nearbyCitizens = new ArrayList<>();
 
     public void action() {
+      if (getIsInjured()) {
+        return;
+      }
       ACLMessage msg = myAgent.receive();
       if (msg != null && msg.getPerformative() == ACLMessage.INFORM) {
         Point otherPosition = parsePosition(msg.getContent());

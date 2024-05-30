@@ -161,7 +161,7 @@ public class MapFrame extends JFrame {
         // g.drawString(j + "," + i, j * tileSize + 5, i * tileSize + startY + 15);
       }
     }
-    drawPath(g); // Draw the path
+    // drawPath(g); // Draw the path
     for (Map.Entry<String, Point> entry : agentPositions.entrySet()) {
       Point p = entry.getValue();
       g.setColor(agentColors.get(entry.getKey()));
@@ -177,7 +177,7 @@ public class MapFrame extends JFrame {
         ovalY + ovalWidth / 2 + fm.getAscent() / 2 - fm.getDescent() / 2;
       g.setColor(Color.WHITE);
       String nameID = entry.getKey().replaceAll("[^A-Z0-9]", "");
-      g.drawString(nameID, stringX, stringY + 50);
+      g.drawString(nameID, stringX, stringY);
     }
   }
 

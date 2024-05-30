@@ -76,7 +76,7 @@ public class Citizen extends CitizenAgent {
         try {
           DFAgentDescription template = new DFAgentDescription();
           ServiceDescription sd = new ServiceDescription();
-          sd.setType("thief");
+          sd.setType("thiefagent");
           template.addServices(sd);
           DFAgentDescription[] results = DFService.search(myAgent, template);
           findClosestThief(results);
@@ -246,7 +246,7 @@ public class Citizen extends CitizenAgent {
 
           DFAgentDescription template = new DFAgentDescription();
           ServiceDescription sd = new ServiceDescription();
-          sd.setType("thief");
+          sd.setType("thiefagent");
           template.addServices(sd);
           DFAgentDescription[] results = DFService.search(myAgent, template);
           for (DFAgentDescription dfd : results) {
