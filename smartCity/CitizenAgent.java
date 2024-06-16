@@ -40,6 +40,7 @@ public class CitizenAgent extends Agent {
   private double balance = 1000;
   private double previousBalance = balance;
   private double awarenessRange = 50.0;
+  private double greedyThreshold = Math.random() * 20 + 13;
 
   private Object[] args;
 
@@ -155,7 +156,7 @@ public class CitizenAgent extends Agent {
 
     public void onTick() {
       double chance = Math.random();
-      if (chance < 0.05 && !(myAgent instanceof NurseAgent) && !isInjured) {
+      if (chance < 0.7 && !(myAgent instanceof NurseAgent) && !isInjured) {
         isInjured = true;
         agentSays("I am injured");
       }
@@ -175,7 +176,7 @@ public class CitizenAgent extends Agent {
     for (Behaviour b : getBehaviours()) {
       if (b != null) removeBehaviour(b);
     }
-    System.out.println(getLocalName() + ": terminating.");
+    agentSays("Terminating.");
     AgentRegistry.deregisterAgent(this);
   }
 
@@ -400,12 +401,16 @@ public class CitizenAgent extends Agent {
       findDestination();
     }
 
+    // NurseAgent1: Failed to find a path from java.awt.Point[x=10,y=17]->pezodromio to java.awt.Point[x=16,y=9] -> dromos
+
     protected void onTick() {
       try {
         if (isInjured) return;
+        if (destination == null) findDestination();
 
         if (destinationReached || position.equals(destination)) {
-          agentSays("Destination reached at " + position);
+          setPosition(destination);
+          agentSays("Destination reached at " + position.x + "," + position.y);
           if (usingVehicle) {
             // agentSays("Parking the vehicle at " + position);
             cityMap.clearVehiclePosition(position);
@@ -639,13 +644,14 @@ public class CitizenAgent extends Agent {
   }
 
   protected void clearDestination() {
-    destination = null;
+    setDestination(null);
     path.clear();
     destinationReached = false;
   }
 
   private void spawnVehicle(Point pos) {
     agentSays("Vehicle spawned at " + pos);
+    setPosition(pos);
     cityMap.setVehiclePosition(pos);
   }
 
@@ -667,8 +673,8 @@ public class CitizenAgent extends Agent {
         )
     );
 
-    destination = dest;
-    agentSays("Destination set to " + destination);
+    setDestination(dest);
+    agentSays("Destination set to " + destination.x + "," + destination.y);
   }
 
   private Point findNearestRoadOrSidewalk(Point start, boolean needsSidewalk) {
@@ -1187,6 +1193,14 @@ public class CitizenAgent extends Agent {
 
   public Object[] getArgs() {
     return args;
+  }
+
+  public void setGreedyThreshold(double greedyThreshold) {
+    this.greedyThreshold = greedyThreshold;
+  }
+
+  public double getGreedyThreshold() {
+    return greedyThreshold;
   }
 
   // -----------------

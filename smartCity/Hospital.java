@@ -145,6 +145,10 @@ public class Hospital extends Agent {
 
   private class sendTasksToNurses extends CyclicBehaviour {
 
+    double calculateTaskBalance(double distance, double severity) {
+      return distance * severity;
+    }
+
     public void action() {
       // Custom MessageTemplate to match conversation IDs that start with "injury-report-"
       MessageTemplate mtPrefix = new MessageTemplate(
@@ -172,13 +176,26 @@ public class Hospital extends Agent {
         if (!taskQueue.isEmpty()) {
           ACLMessage task = taskQueue.poll();
           AID injuredCitizen = senderTrack.get(task);
-
+          double balance = calculateTaskBalance(
+            cityMap.getDistance(
+              position,
+              (
+                (CitizenAgent) AgentRegistry.getAgent(
+                  injuredCitizen.getLocalName()
+                )
+              ).getPosition()
+            ),
+            2
+          );
+          balance = Math.round(balance);
           reply.setPerformative(ACLMessage.PROPOSE);
           reply.setContent(
             "Injured Citizen: " +
             injuredCitizen.getLocalName() +
-            " message: " +
-            task.getContent()
+            " | Message: " +
+            task.getContent() +
+            " | Balance: " +
+            balance
           );
           activeTasks.put(msg.getSender(), task.getConversationId());
         } else {

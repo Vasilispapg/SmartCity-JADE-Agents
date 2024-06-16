@@ -153,6 +153,10 @@ public class CityMap {
     return grid[y][x]; // Corrected x and y
   }
 
+  public double getDistance(Point a, Point b) {
+    return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+  }
+
   public void printMap() {
     for (int i = 0; i < size; i++) {
       for (int j = 0; j < size; j++) {

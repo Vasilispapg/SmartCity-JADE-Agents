@@ -149,6 +149,10 @@ public class PoliceStation extends Agent {
 
   private class sendTasksToPoliceAgents extends CyclicBehaviour {
 
+    double calculateTaskBalance(double distance, double severity) {
+      return distance * severity;
+    }
+
     public void action() {
       // Custom MessageTemplate to match conversation IDs that start with "cased-report-"
       MessageTemplate mtPrefix = new MessageTemplate(
@@ -176,13 +180,25 @@ public class PoliceStation extends Agent {
         if (!taskQueue.isEmpty()) {
           ACLMessage task = taskQueue.poll();
           AID casedCitizen = senderTrack.get(task);
-
+          double balance = calculateTaskBalance(
+            cityMap.getDistance(
+              position,
+              (
+                (CitizenAgent) AgentRegistry.getAgent(
+                  casedCitizen.getLocalName()
+                )
+              ).getPosition()
+            ),
+            2
+          );
           reply.setPerformative(ACLMessage.PROPOSE);
           reply.setContent(
             "cased Citizen: " +
             casedCitizen.getLocalName() +
-            " message: " +
-            task.getContent()
+            " | Message: " +
+            task.getContent() +
+            " | Balance: " +
+            balance
           );
           activeTasks.put(msg.getSender(), task.getConversationId());
         } else {

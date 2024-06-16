@@ -18,6 +18,7 @@ public class NurseAgent extends CitizenAgent {
   private DFAgentDescription dfd = new DFAgentDescription();
   private ServiceDescription sd = new ServiceDescription();
   private boolean isBusy = false;
+
   private AID injuredAID;
 
   protected void setup() {
@@ -82,33 +83,46 @@ public class NurseAgent extends CitizenAgent {
         if (!isBusy) {
           setDestination(null);
 
-          response.setPerformative(ACLMessage.ACCEPT_PROPOSAL);
-          myAgent.send(response);
-          agentSays("I am accepting task");
-          isBusy = true;
+          String[] contentParts = msg.getContent().split("\\|");
+          String injuredInfo = contentParts[0].trim().split(":")[1].trim();
+          String balanceInfo = contentParts[2].trim().split(":")[1].trim();
+          injuredAID = new AID(injuredInfo, true);
 
-          injuredAID =
-            new AID(
-              msg.getContent().split("message")[0].split(":")[1].trim(),
-              true
+          if (evaluateTask(Double.parseDouble(balanceInfo))) {
+            response.setPerformative(ACLMessage.ACCEPT_PROPOSAL);
+            myAgent.send(response);
+            agentSays(
+              "I am accepting task for " +
+              injuredInfo +
+              " for " +
+              balanceInfo +
+              " balance" +
+              " | Greedy Threshold: " +
+              getGreedyThreshold()
+            );
+            isBusy = true;
+
+            setBalance(getBalance() + Double.parseDouble(balanceInfo));
+
+            // getting the injured agent's position
+            CitizenAgent injuredAgent = (CitizenAgent) AgentRegistry.getAgent(
+              injuredAID.getLocalName()
             );
 
-          // getting the injured agent's position
-          CitizenAgent injuredAgent = (CitizenAgent) AgentRegistry.getAgent(
-            injuredAID.getLocalName()
-          );
+            Point injuredPosition = injuredAgent.getPosition();
 
-          Point injuredPosition = injuredAgent.getPosition();
-
-          addBehaviour(
-            new MoveToInjuredBehaviour(myAgent, injuredPosition, injuredAID)
-          );
+            addBehaviour(
+              new MoveToInjuredBehaviour(myAgent, injuredPosition, injuredAID)
+            );
+          } else {
+            response.setPerformative(ACLMessage.REJECT_PROPOSAL);
+            response.setContent(
+              "I cannot accept the task to heal " + injuredAID.getLocalName()
+            );
+            myAgent.send(response);
+            agentSays("I am rejecting task");
+          }
         } else {
-          injuredAID =
-            new AID(
-              msg.getContent().split("message")[0].split(":")[1].trim(),
-              true
-            );
           response.setPerformative(ACLMessage.REJECT_PROPOSAL);
           response.setContent(
             "I cannot accept the task to heal " + injuredAID.getLocalName()
@@ -119,6 +133,10 @@ public class NurseAgent extends CitizenAgent {
       } else {
         block();
       }
+    }
+
+    private boolean evaluateTask(double balance) {
+      return balance > getGreedyThreshold();
     }
   }
 

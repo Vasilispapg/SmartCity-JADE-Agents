@@ -145,33 +145,35 @@ public class PoliceAgent extends CitizenAgent {
         if (!isBusy) {
           setDestination(null);
 
-          response.setPerformative(ACLMessage.ACCEPT_PROPOSAL);
-          send(response);
-          agentSays("I am accepting task");
-          isBusy = true;
+          String[] contentParts = msg.getContent().split("\\|");
+          String citizenInfo = contentParts[0].trim().split(":")[1].trim();
+          String balanceInfo = contentParts[2].trim().split(":")[1].trim();
+          citizenAID = new AID(citizenInfo, true);
+          if (evaluateTask(Double.parseDouble(balanceInfo))) {
+            response.setPerformative(ACLMessage.ACCEPT_PROPOSAL);
+            send(response);
+            agentSays("I am accepting task");
+            isBusy = true;
 
-          citizenAID =
-            new AID(
-              msg.getContent().split("message")[0].split(":")[1].trim(),
-              true
+            // getting the citizen agent's position
+            Citizen citizenAgent = (Citizen) AgentRegistry.getAgent(
+              citizenAID.getLocalName()
             );
 
-          // getting the citizen agent's position
-          Citizen citizenAgent = (Citizen) AgentRegistry.getAgent(
-            citizenAID.getLocalName()
-          );
+            Point citizenPosition = citizenAgent.getPosition();
 
-          Point citizenPosition = citizenAgent.getPosition();
-
-          addBehaviour(
-            new MoveToCitizenBehaviour(myAgent, citizenPosition, citizenAID)
-          );
+            addBehaviour(
+              new MoveToCitizenBehaviour(myAgent, citizenPosition, citizenAID)
+            );
+          } else {
+            response.setPerformative(ACLMessage.REJECT_PROPOSAL);
+            response.setContent(
+              "I cannot accept the task to heal " + citizenAID.getLocalName()
+            );
+            send(response);
+            agentSays("I am rejecting task");
+          }
         } else {
-          citizenAID =
-            new AID(
-              msg.getContent().split("message")[0].split(":")[1].trim(),
-              true
-            );
           response.setPerformative(ACLMessage.REJECT_PROPOSAL);
           response.setContent(
             "I cannot accept the task to heal " + citizenAID.getLocalName()
@@ -182,6 +184,10 @@ public class PoliceAgent extends CitizenAgent {
       } else {
         block();
       }
+    }
+
+    private boolean evaluateTask(double balance) {
+      return balance > getGreedyThreshold();
     }
   }
 
